@@ -109,7 +109,10 @@ async function acquireAttempt(
 			try {
 				pinned = openSync(lockPath, "r");
 				const pinnedIdentity = fstatSync(pinned, { bigint: true });
-				if (pinnedIdentity.dev !== captured.dev || pinnedIdentity.ino !== captured.ino) {
+				// Windows reports dev 0 from statSync but the volume id from fstatSync, so the
+				// device is only comparable when both sides report one; ino still must match.
+				const devChanged = captured.dev !== 0n && pinnedIdentity.dev !== 0n && pinnedIdentity.dev !== captured.dev;
+				if (devChanged || pinnedIdentity.ino !== captured.ino) {
 					// The lock changed hands between the capture and the pin: treat as live.
 					return "held";
 				}

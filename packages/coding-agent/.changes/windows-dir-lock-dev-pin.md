@@ -1,0 +1,1 @@
+- Fixed stale bootstrap locks never being reclaimed on Windows, which made every run that needed the Python kernel hang forever.
