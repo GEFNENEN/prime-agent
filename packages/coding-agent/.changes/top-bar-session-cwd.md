@@ -1,0 +1,1 @@
+- Showed the session name with its working directory in the top bar.

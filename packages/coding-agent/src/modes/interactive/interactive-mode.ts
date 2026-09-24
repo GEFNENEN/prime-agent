@@ -1503,7 +1503,7 @@ export class InteractiveMode {
 		};
 		this.headerContainer = new Container();
 		this.topBar = new TopBar({
-			getChatName: () => this.getCurrentSessionName() ?? path.basename(this.getCurrentCwd()),
+			getChatName: () => this.getTopBarTitle(),
 			// Hide the cached spend unless it was fetched for the session now bound:
 			// a pending or failed refresh must not attribute the previous
 			// session's spend to the new chat.
@@ -3324,6 +3324,12 @@ export class InteractiveMode {
 
 	private getCurrentSessionName(): string | undefined {
 		return this.connectionState?.sessionName ?? this.uiServices.getInitialSessionName();
+	}
+
+	/** Top bar title: "name(cwd)" so two sessions on the same name stay distinguishable. */
+	private getTopBarTitle(): string {
+		const name = this.getCurrentSessionName() ?? "untitled";
+		return `${name}(${formatSplashCwd(this.getCurrentCwd())})`;
 	}
 
 	private applyAuthStaleEvent(event: Extract<AgentConnectionSessionEvent, { type: "auth_stale" }>): void {
