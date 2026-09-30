@@ -1,0 +1,1 @@
+- Waited longer before reporting the kernel as still busy after an interrupt.

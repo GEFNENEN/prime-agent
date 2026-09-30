@@ -10,7 +10,7 @@ export const SNAPSHOT_EXECUTION_TIMEOUT_MS = 5000;
 /** Restore deserializes everything a snapshot serializes: bound like the repair step. */
 export const RESTORE_EXECUTION_TIMEOUT_MS = 30_000;
 export const KERNEL_ABORT_GRACE_MS = 1000;
-export const KERNEL_BUSY_REUSE_WAIT_MS = 5000;
+export const KERNEL_BUSY_REUSE_WAIT_MS = 30_000;
 export const KERNEL_BUSY_INTERRUPT_INTERVAL_MS = 500;
 export const MAX_LATE_SENT_AGENT_MESSAGE_HANDLERS = 256;
 const KERNEL_BUSY_AFTER_INTERRUPT_MESSAGE =
