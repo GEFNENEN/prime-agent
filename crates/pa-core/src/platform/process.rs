@@ -48,20 +48,39 @@ pub fn set_new_session(command: &mut Command) {
     }
 }
 
-/// Windows: the libuv mapping of Node `detached: true` on win32 -
-/// `CREATE_NEW_PROCESS_GROUP | DETACHED_PROCESS`, plus `CREATE_NO_WINDOW`
-/// (console children of a windowless parent would flash a fresh console).
-/// Tree kills need none of it (`taskkill /T` walks the parent-child tree).
+/// `winbase.h`: new process group (no ctrl+c broadcast from the parent).
+#[cfg(windows)]
+const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
+
+/// `winbase.h` `CREATE_NO_WINDOW` (TS `windowsHide`): the child owns a
+/// console with no window, so it survives the caller's terminal close
+/// without re-attaching to the caller's console.
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
+/// `winbase.h`: `DETACHED_PROCESS`. Deliberately never applied: MSDN has
+/// it cancel `CREATE_NO_WINDOW` when both are passed, and a console-less
+/// child makes every console grandchild allocate a fresh console - one
+/// visible window per spawn on a Windows Terminal host (11 26200).
+#[cfg(all(test, windows))]
+const DETACHED_PROCESS: u32 = 0x0000_0008;
+
+/// The creation flags of a Windows detached spawn - the product's mapping
+/// of Node `detached: true` on win32: the child starts a new process group
+/// in its own invisible console, surviving the caller's terminal close
+/// without flashing one. Tree kills need no flag (`taskkill /T` walks the
+/// parent-child tree).
+#[cfg(windows)]
+#[must_use]
+fn detached_spawn_flags() -> u32 {
+    CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW
+}
+
+/// Windows: [`detached_spawn_flags`] applied to a spawn.
 #[cfg(windows)]
 pub fn set_new_process_group(command: &mut Command) {
     use std::os::windows::process::CommandExt;
-    /// `winbase.h`: new process group (no ctrl+c broadcast from the parent).
-    const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
-    /// `winbase.h`: detached console, survives the parent's console close.
-    const DETACHED_PROCESS: u32 = 0x0000_0008;
-    /// `winbase.h` `CREATE_NO_WINDOW` (TS `windowsHide`).
-    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    command.creation_flags(CREATE_NEW_PROCESS_GROUP | DETACHED_PROCESS | CREATE_NO_WINDOW);
+    command.creation_flags(detached_spawn_flags());
 }
 
 #[cfg(not(any(unix, windows)))]
@@ -76,8 +95,6 @@ pub fn set_new_process_group(_command: &mut Command) {
 #[cfg(windows)]
 pub fn set_no_window(command: &mut Command) {
     use std::os::windows::process::CommandExt;
-    /// `winbase.h` `CREATE_NO_WINDOW` (TS `windowsHide`).
-    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
     command.creation_flags(CREATE_NO_WINDOW);
 }
 
@@ -624,6 +641,17 @@ mod windows_tests {
         assert!(!kill_pid(-1, Signal::Kill));
         assert!(!kill_pid(0, Signal::Term));
         assert!(!kill_process_group_or_pid(-1));
+    }
+
+    #[test]
+    fn detached_spawns_never_ask_for_detached_process() {
+        // MSDN: DETACHED_PROCESS wins over CREATE_NO_WINDOW when both are
+        // passed, so a console-less child would make every console
+        // grandchild pop a fresh visible console. The flag must stay out.
+        let flags = detached_spawn_flags();
+        assert_eq!(flags & DETACHED_PROCESS, 0, "DETACHED_PROCESS re-entered");
+        assert_eq!(flags & CREATE_NO_WINDOW, CREATE_NO_WINDOW);
+        assert_eq!(flags & CREATE_NEW_PROCESS_GROUP, CREATE_NEW_PROCESS_GROUP);
     }
 }
 

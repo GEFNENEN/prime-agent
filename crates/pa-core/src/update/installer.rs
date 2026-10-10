@@ -306,8 +306,9 @@ pub async fn run_bundled_installer(
             .args(args)
             .stdin(std::process::Stdio::from(handle));
         // THE PROCESS-CONTROL WALL (the in-house detached-spawn wrapper:
-        // CREATE_NEW_PROCESS_GROUP | DETACHED_PROCESS | CREATE_NO_WINDOW,
-        // the product's own detached-survives-parent mapping): a console-
+        // CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW — never
+        // DETACHED_PROCESS, which cancels CREATE_NO_WINDOW and makes every
+        // console grandchild pop a fresh visible window): a console-
         // attached child dies with the caller's terminal close (the
         // CTRL_CLOSE broadcast) — mid-publish, exactly when the handoff
         // exists to let it finish — and Ctrl+C at the caller's terminal
