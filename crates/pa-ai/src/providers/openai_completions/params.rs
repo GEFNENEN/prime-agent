@@ -347,6 +347,11 @@ pub(crate) fn build_headers(
         }
     }
 
+    // The header list is a plain Vec, so a duplicate Authorization reaching the
+    // wire makes strict CDN edges (Cloudflare, openresty) reject the request
+    // with 400. Drop any earlier copy first: callers that resolve auth headers
+    // through the model registry may already have added one.
+    headers.retain(|(name, _)| !name.eq_ignore_ascii_case("Authorization"));
     headers.insert(0, ("Authorization".into(), format!("Bearer {api_key}")));
     let _ = conversation_id;
     headers
@@ -389,6 +394,30 @@ mod tests {
             }),
             "the auth owner's header must ship: {headers:?}"
         );
+    }
+
+    /// A caller that resolves auth through the model registry passes an `Authorization` header in
+    /// `options_headers`, and `build_headers` adds the bearer token itself. Strict CDN edges answer
+    /// a duplicated `Authorization` with 400, so exactly one copy must reach the wire.
+    #[test]
+    fn authorization_header_is_never_duplicated() {
+        let model = models_generated::get_model("prime-inference", "z-ai/glm-5.3")
+            .expect("the catalog carries a prime-inference model");
+        let compat = crate::providers::openai_completions::get_compat(model);
+        let caller = std::collections::HashMap::from([(
+            "Authorization".to_string(),
+            "Bearer from-the-registry".to_string(),
+        )]);
+
+        let headers = build_headers(model, "k", Some(&caller), None, &compat, None);
+        let seen: Vec<&String> = headers
+            .iter()
+            .filter(|(name, _)| name.eq_ignore_ascii_case("Authorization"))
+            .map(|(_, value)| value)
+            .collect();
+
+        assert_eq!(seen.len(), 1, "expected one Authorization header: {headers:?}");
+        assert_eq!(seen[0], "Bearer k", "the explicit api key must win");
     }
 
     /// Assemble params for a compiled catalog model with a reasoning level requested, mirroring

@@ -182,6 +182,11 @@ fn build_headers(
             headers.push((name.clone(), value.clone()));
         }
     }
+    // The header list is a plain Vec, so a duplicate Authorization reaching the
+    // wire makes strict CDN edges (Cloudflare, openresty) reject the request
+    // with 400. Drop any earlier copy first: callers that resolve auth headers
+    // through the model registry may already have added one.
+    headers.retain(|(name, _)| !name.eq_ignore_ascii_case("Authorization"));
     headers.push(("Authorization".into(), format!("Bearer {api_key}")));
     headers
 }
