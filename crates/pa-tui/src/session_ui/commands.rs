@@ -533,6 +533,18 @@ impl SessionUi {
                     );
                     return Ok(());
                 }
+                // The self-update hold (settings `updateGuard`): refuse
+                // before the confirmation panel, so a held build never
+                // offers the update dialog at all.
+                if let Some(refusal) = self
+                    .client_settings
+                    .as_ref()
+                    .and_then(|settings| settings.update_guard_refusal())
+                {
+                    view.editor.set_text("");
+                    self.error_row(&refusal, view);
+                    return Ok(());
+                }
                 view.editor.set_text("");
                 // The message is hand-wrapped to fit the panel rows (the
                 // confirm renders each line truncated, never wrapped).

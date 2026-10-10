@@ -671,6 +671,17 @@ fn run_update(args: &[String]) -> PublicCommandResult {
     let Some(options) = parse_update_options(args) else {
         return handled_failed();
     };
+    // The self-update hold (settings `updateGuard`): a held build refuses
+    // every install mode below (rollback/archive included); `--check`
+    // returned above and still reports new versions.
+    if let Some(refusal) = crate::self_update::update_guard_refusal() {
+        return fail(
+            &refusal,
+            Some(format!(
+                "\"{APP_NAME} update --check\" still reports available versions."
+            )),
+        );
+    }
     // `--rollback` and `--archive` on an installer install run the bundled
     // installer; any other binary stays on the managed-install flow.
     if options.rollback || options.archive.is_some() {

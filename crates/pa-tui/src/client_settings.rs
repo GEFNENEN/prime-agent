@@ -205,6 +205,14 @@ pub trait ClientSettings: Send + Sync {
     /// The `/telemetry status` report: on or off and why, the endpoint,
     /// and the installation id.
     fn telemetry_status(&self) -> String;
+    /// The self-update hold's refusal message (settings `updateGuard`):
+    /// `Some` makes `/update` refuse before its confirmation panel,
+    /// `None` proceeds. Defaults to `None`: a client without the
+    /// settings surface never holds updates.
+    #[must_use]
+    fn update_guard_refusal(&self) -> Option<String> {
+        None
+    }
     /// Persists `telemetry.enabled` (the TS key) and returns the report
     /// after the write (it names an environment variable or project
     /// setting that still decides).
