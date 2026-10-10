@@ -27,7 +27,7 @@ pub const BOOTSTRAP_EXECUTION_TIMEOUT_MS: u64 = 30_000;
 #[cfg(test)]
 pub const BOOTSTRAP_EXECUTION_TIMEOUT_MS: u64 = 500;
 pub const KERNEL_ABORT_GRACE_MS: u64 = 1_000;
-pub const KERNEL_BUSY_REUSE_WAIT_MS: u64 = 5_000;
+pub const KERNEL_BUSY_REUSE_WAIT_MS: u64 = 30_000;
 pub const KERNEL_BUSY_INTERRUPT_INTERVAL_MS: u64 = 500;
 pub const MAX_LATE_SENT_AGENT_MESSAGE_HANDLERS: usize = 256;
 pub const KERNEL_BUSY_AFTER_INTERRUPT_MESSAGE: &str = "The Python kernel is still running the previously interrupted cell. Wait and try again, or kill the kernel to start fresh.";
