@@ -67,11 +67,27 @@ pub fn confirm_nightly_switch(
     None
 }
 
+/// The self-update hold's refusal text (settings `updateGuard`), or `None`
+/// when updates are not held. Global settings only; unreadable settings
+/// fail open so a broken file cannot wedge updating forever.
+pub(crate) fn update_guard_refusal() -> Option<String> {
+    let cwd = std::env::current_dir().ok()?;
+    pa_core::settings::SettingsManager::create(&cwd, crate::config::get_agent_dir())
+        .update_guard_refusal()
+}
+
 /// Run the native self-update (the staged-activation flow) with the
 /// persisted-channel default and the completed-run persist. Returns the exit
 /// code; failures print the `Error: …` line and exit 1 (including the
 /// installer-ownership message verbatim).
 pub fn run(options: &SelfUpdateOptions, persisted_wire: Option<&str>) -> i32 {
+    // The self-update hold (settings `updateGuard`): a held build refuses
+    // every install mode this funnel serves, `package update`'s self
+    // target included.
+    if let Some(refusal) = update_guard_refusal() {
+        eprintln!("Error: {refusal}");
+        return 1;
+    }
     // The effective channel: an explicit flag wins, else the persisted one, else the running
     // version infers it.
     let channel = options
