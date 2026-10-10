@@ -101,6 +101,10 @@ impl ClientSettings for CliClientSettings {
         self.manager().set_theme(theme.to_string())
     }
 
+    fn update_guard_refusal(&self) -> Option<String> {
+        self.manager().update_guard_refusal()
+    }
+
     fn default_service_tier(&self) -> String {
         // The wire name of the persisted default tier; "default" when
         // unset or unreadable.

@@ -331,6 +331,47 @@ pub struct StopHookSettings {
     pub timeout_ms: Option<u64>,
 }
 
+/// The settings `updateGuard`: an operator hold that makes every
+/// self-update install surface refuse to run (a build carrying local
+/// patches an upstream update would overwrite). A present key holds
+/// updates unless `"hold": false`; `message` replaces the refusal text.
+/// `prime-agent update --check` keeps working — the hold refuses installs,
+/// never the availability report.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateGuardSettings {
+    /// Whether updates are held; unset means held (the key itself is the
+    /// switch, `false` the explicit release).
+    pub hold: Option<bool>,
+    /// The refusal message; unset (or blank) uses the built-in text.
+    pub message: Option<String>,
+}
+
+impl UpdateGuardSettings {
+    /// The refusal to show an install surface, or `None` when the hold is
+    /// released (`"hold": false`).
+    #[must_use]
+    pub fn refusal(&self) -> Option<String> {
+        if self.hold == Some(false) {
+            return None;
+        }
+        let message = self
+            .message
+            .as_deref()
+            .map(str::trim)
+            .filter(|text| !text.is_empty());
+        Some(message.map_or_else(default_update_guard_message, ToString::to_string))
+    }
+}
+
+/// The refusal shown when `updateGuard.message` is unset or blank.
+fn default_update_guard_message() -> String {
+    "Updates are held by the updateGuard setting: this build carries local patches that an \
+     update would overwrite. Remove the updateGuard key (or set \"hold\": false) to allow \
+     updates; `prime-agent update --check` still reports new versions."
+        .to_string()
+}
+
 /// The settings document: every known field optional; unknown keys preserved.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
@@ -415,6 +456,9 @@ pub struct Settings {
     /// The agent-end write-back hook (see [`StopHookSettings`]); unset
     /// disables it.
     pub stop_hook: Option<StopHookSettings>,
+    /// The self-update hold (see [`UpdateGuardSettings`]); unset allows
+    /// updates.
+    pub update_guard: Option<UpdateGuardSettings>,
     /// Unknown keys survive load/save round-trips (forward compatibility).
     #[serde(flatten, skip_serializing_if = "serde_json::Map::is_empty")]
     pub extra: serde_json::Map<String, serde_json::Value>,

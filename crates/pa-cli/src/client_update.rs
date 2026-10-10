@@ -14,6 +14,12 @@ pub struct ClientUpdate;
 impl pa_tui::update_command::UpdateCommands for ClientUpdate {
     fn run_update(&self) -> pa_tui::update_command::UpdateRunFuture {
         Box::pin(async {
+            // The self-update hold (settings `updateGuard`): the TUI
+            // refuses before its confirmation panel; this backstop covers
+            // any surface that reaches the runner anyway.
+            if let Some(refusal) = crate::self_update::update_guard_refusal() {
+                return Err(refusal);
+            }
             if let Some(kind) = std::env::current_exe()
                 .ok()
                 .as_deref()

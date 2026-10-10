@@ -11,6 +11,7 @@ use super::merge::{deep_merge, migrate};
 use super::storage::{SettingsScope, SettingsStorage};
 use super::types::{
     QueueModeSetting, Settings, ThinkingLevelSetting, TransportSetting, UpdateChannel,
+    UpdateGuardSettings,
 };
 
 pub const RECENT_MODELS_LIMIT: usize = 20;
@@ -671,6 +672,17 @@ impl SettingsManager {
     #[must_use]
     pub fn get_update_channel(&self) -> Option<UpdateChannel> {
         self.global.update_channel
+    }
+
+    /// The self-update hold's refusal text, or `None` when updates are
+    /// not held (no `updateGuard` key, or `"hold": false`). Global-only:
+    /// a project document must not release the operator's hold.
+    #[must_use]
+    pub fn update_guard_refusal(&self) -> Option<String> {
+        self.global
+            .update_guard
+            .as_ref()
+            .and_then(UpdateGuardSettings::refusal)
     }
 
     #[must_use]

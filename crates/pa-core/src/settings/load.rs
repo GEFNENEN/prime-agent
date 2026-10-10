@@ -63,6 +63,7 @@ const KNOWN_FIELDS: &[&str] = &[
     "requestTiming",
     "turnHook",
     "stopHook",
+    "updateGuard",
 ];
 
 /// Extract each known field independently; ignore fields whose JSON type does not match the Rust
@@ -202,6 +203,50 @@ mod tests {
         assert!(settings.stop_hook.is_none());
         assert!(
             settings.extra.get("stopHook").is_none(),
+            "the wrong-typed known field drops out entirely: {:?}",
+            settings.extra
+        );
+    }
+
+    /// The `updateGuard` key parses into its typed shape, a wrong-typed
+    /// value behaves as unset, and the refusal logic follows the key.
+    #[test]
+    fn update_guard_loads_typed_and_refuses_until_released() {
+        let settings = from_value_lenient(&serde_json::json!({
+            "updateGuard": { "hold": true, "message": "local patches: do not update" }
+        }));
+        let guard = settings.update_guard.expect("typed updateGuard loads");
+        assert_eq!(guard.hold, Some(true));
+        assert_eq!(
+            guard.refusal().as_deref(),
+            Some("local patches: do not update")
+        );
+
+        let held = from_value_lenient(&serde_json::json!({ "updateGuard": {} }))
+            .update_guard
+            .expect("bare updateGuard loads");
+        assert!(
+            held.refusal().is_some_and(|text| text.contains("updateGuard")),
+            "an unset hold still holds and names the key"
+        );
+
+        let released = from_value_lenient(&serde_json::json!({ "updateGuard": { "hold": false } }))
+            .update_guard
+            .expect("released updateGuard loads");
+        assert_eq!(released.refusal(), None);
+
+        let blank = from_value_lenient(&serde_json::json!({ "updateGuard": { "message": "  " } }))
+            .update_guard
+            .expect("blank message updateGuard loads");
+        assert!(
+            blank.refusal().is_some_and(|text| !text.trim().is_empty()),
+            "a blank message falls back to the built-in text"
+        );
+
+        let settings = from_value_lenient(&serde_json::json!({ "updateGuard": "on" }));
+        assert!(settings.update_guard.is_none());
+        assert!(
+            settings.extra.get("updateGuard").is_none(),
             "the wrong-typed known field drops out entirely: {:?}",
             settings.extra
         );
