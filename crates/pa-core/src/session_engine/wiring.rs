@@ -126,6 +126,34 @@ impl AgentSession {
         self.turn_hook = hook;
     }
 
+    /// Install the configured agent-end write-back hook (`stopHook`
+    /// settings): subscribes the loop listener that renders each finished
+    /// run and runs the hook command. The listener answers every event
+    /// immediately (the write-back rides a detached task the loop never
+    /// awaits), so neither a slow hook nor a failed one can fail a run.
+    /// `None` keeps the feature off.
+    pub async fn set_stop_hook(
+        &self,
+        hook: Option<std::sync::Arc<super::stop_hook::StopHook>>,
+    ) {
+        let Some(hook) = hook else {
+            return;
+        };
+        let session = std::sync::Arc::clone(&self.session);
+        self.agent
+            .subscribe(move |event, _signal| {
+                let hook = std::sync::Arc::clone(&hook);
+                let session = std::sync::Arc::clone(&session);
+                Box::pin(async move {
+                    if let pa_agent::types::AgentEvent::AgentEnd { messages } = event {
+                        hook.handle_agent_end(session, messages);
+                    }
+                    Ok(())
+                })
+            })
+            .await;
+    }
+
     /// Bind the kernel-state probe behind the post-compaction
     /// `ipython_state` notice (the engine wiring hands over the session's
     /// kernel provisioner, TS `AgentSession._ipythonKernelProvisioner`).

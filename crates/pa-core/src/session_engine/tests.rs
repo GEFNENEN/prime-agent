@@ -1504,3 +1504,91 @@ async fn an_admitted_turn_runs_the_turn_hook_into_the_system_prompt() {
         "the hook context is appended: {system_prompt}"
     );
 }
+
+
+/// The configured `stopHook` reaches the real run path: finishing a run
+/// writes the dcode-format adapter transcript and runs the hook command
+/// with the `{session_id, transcript_path, cwd}` payload — without
+/// delaying the run's settle (the write-back rides a detached task).
+#[tokio::test]
+async fn an_agent_end_writes_back_through_the_stop_hook() {
+    let provider = Arc::new(ScriptedProvider::new(test_model()));
+    provider.push_text_turn("hello from the model");
+    let options = AgentOptions {
+        initial_state: AgentInitialState {
+            model: Some(test_model()),
+            ..Default::default()
+        },
+        stream_fn: Some(provider.stream_fn()),
+        ..Default::default()
+    };
+    let agent = Agent::new(options);
+    let tmp = tempfile::tempdir().unwrap();
+    let session = SessionManager::in_memory(tmp.path());
+    let engine = AgentSession::new(Arc::new(agent), session, vec![])
+        .await
+        .unwrap();
+
+    // The hook command copies its stdin payload next to the transcript
+    // dir; the shell quoting follows the test helper in `stop_hook`.
+    let capture = tmp.path().join("payload.json");
+    let command = {
+        #[cfg(windows)]
+        {
+            let is_bash = crate::platform::get_shell_config(None)
+                .map_or(false, |config| config.shell.to_ascii_lowercase().contains("bash"));
+            if is_bash {
+                format!("cat > '{}'", capture.display().to_string().replace('\\', "/"))
+            } else {
+                format!("more > \"{}\"", capture.display())
+            }
+        }
+        #[cfg(not(windows))]
+        {
+            format!("cat > '{}'", capture.display())
+        }
+    };
+    let hook = crate::session_engine::stop_hook::StopHook::from_settings(
+        Some(&crate::settings::StopHookSettings {
+            command: Some(command),
+            timeout_ms: None,
+        }),
+        tmp.path(),
+    )
+    .expect("the test hook builds");
+    engine.set_stop_hook(Some(Arc::new(hook))).await;
+
+    engine
+        .prompt("remember this", PromptOptions::default())
+        .await
+        .unwrap();
+    engine.agent().wait_for_idle().await;
+
+    // The write-back is detached; poll briefly for its artifacts.
+    let transcript = tmp.path().join("stop-hook").join(format!(
+        "{}.jsonl",
+        engine.session_id().await
+    ));
+    let mut waited = 0;
+    while !capture.exists() && waited < 200 {
+        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+        waited += 1;
+    }
+
+    let body = std::fs::read_to_string(&transcript).expect("adapter transcript exists");
+    let rows: Vec<serde_json::Value> = body
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert_eq!(rows[0]["role"], "user");
+    assert_eq!(rows[0]["content"], "remember this");
+    assert_eq!(rows[1]["role"], "assistant");
+    assert_eq!(rows[1]["content"], "hello from the model");
+
+    let payload = std::fs::read_to_string(&capture).expect("the hook captured its payload");
+    assert!(payload.contains("\"session_id\""), "payload: {payload}");
+    assert!(
+        payload.contains(&transcript.display().to_string().replace('\\', "\\\\")),
+        "payload: {payload}"
+    );
+}

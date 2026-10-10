@@ -62,6 +62,7 @@ const KNOWN_FIELDS: &[&str] = &[
     "sessionDir",
     "requestTiming",
     "turnHook",
+    "stopHook",
 ];
 
 /// Extract each known field independently; ignore fields whose JSON type does not match the Rust
@@ -181,6 +182,26 @@ mod tests {
         assert!(settings.turn_hook.is_none());
         assert!(
             settings.extra.get("turnHook").is_none(),
+            "the wrong-typed known field drops out entirely: {:?}",
+            settings.extra
+        );
+    }
+
+    /// The `stopHook` key parses into its typed shape and a wrong-typed
+    /// value behaves as unset.
+    #[test]
+    fn stop_hook_loads_typed_and_wrong_typed_values_drop() {
+        let settings = from_value_lenient(&serde_json::json!({
+            "stopHook": { "command": "node stop.js", "timeoutMs": 5 }
+        }));
+        let hook = settings.stop_hook.expect("typed stopHook loads");
+        assert_eq!(hook.command.as_deref(), Some("node stop.js"));
+        assert_eq!(hook.timeout_ms, Some(5));
+
+        let settings = from_value_lenient(&serde_json::json!({ "stopHook": "node stop.js" }));
+        assert!(settings.stop_hook.is_none());
+        assert!(
+            settings.extra.get("stopHook").is_none(),
             "the wrong-typed known field drops out entirely: {:?}",
             settings.extra
         );

@@ -314,6 +314,23 @@ pub struct TurnHookSettings {
     pub timeout_ms: Option<u64>,
 }
 
+/// The settings `stopHook` (the TS `agent_end` extension parity): a shell
+/// command the session runs once per finished run with a
+/// `{session_id, transcript_path, cwd}` JSON payload on stdin — the
+/// write-back direction of the long-term-memory extension. The run's new
+/// messages are appended to a dcode-format adapter transcript the command
+/// reads through `transcript_path`; its stdout is ignored. Fail-open:
+/// absent, failing, or timed-out writes nothing back and fails nothing.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StopHookSettings {
+    /// Shell command line the hook runs through the platform shell.
+    pub command: Option<String>,
+    /// Wall-clock bound per run in milliseconds (default 70000: the
+    /// console-side stop hooks carry a 60s host budget of their own).
+    pub timeout_ms: Option<u64>,
+}
+
 /// The settings document: every known field optional; unknown keys preserved.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
@@ -395,6 +412,9 @@ pub struct Settings {
     /// The per-turn system-prompt hook (see [`TurnHookSettings`]); unset
     /// disables it.
     pub turn_hook: Option<TurnHookSettings>,
+    /// The agent-end write-back hook (see [`StopHookSettings`]); unset
+    /// disables it.
+    pub stop_hook: Option<StopHookSettings>,
     /// Unknown keys survive load/save round-trips (forward compatibility).
     #[serde(flatten, skip_serializing_if = "serde_json::Map::is_empty")]
     pub extra: serde_json::Map<String, serde_json::Value>,

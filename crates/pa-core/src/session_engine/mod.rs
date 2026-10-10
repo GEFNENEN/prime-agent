@@ -44,6 +44,7 @@ pub mod side_question;
 pub mod skills_unavailable_notice;
 pub mod slash_commands;
 pub mod state_restore_notice;
+pub mod stop_hook;
 pub mod telemetry;
 pub mod tool_bridge;
 pub mod turn_boundary;

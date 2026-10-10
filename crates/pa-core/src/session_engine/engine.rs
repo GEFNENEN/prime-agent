@@ -273,6 +273,9 @@ pub async fn create_session(mut config: SessionEngineConfig) -> anyhow::Result<S
     // Captured before `settings` moves into the resource loader: the
     // per-turn prompt hook (`turnHook`) the admitted-turn transform runs.
     let turn_hook_settings = settings.settings().turn_hook.clone();
+    // Captured before `settings` moves into the resource loader: the
+    // agent-end write-back hook (`stopHook`) the run listener runs.
+    let stop_hook_settings = settings.settings().stop_hook.clone();
     let (mcp_skill_overrides, mcp_generic_servers, built_manager) =
         mcp_gating(&settings, config.agent_dir.clone()).await?;
     let mcp_manager = config
@@ -801,6 +804,12 @@ pub async fn create_session(mut config: SessionEngineConfig) -> anyhow::Result<S
             .store(true, std::sync::atomic::Ordering::SeqCst);
     }
     session.set_turn_hook(turn_hook);
+    let stop_hook = super::stop_hook::StopHook::from_settings(
+        stop_hook_settings.as_ref(),
+        &config.agent_dir,
+    )
+    .map(std::sync::Arc::new);
+    session.set_stop_hook(stop_hook).await;
     // Every compaction path reads the session's resolved compaction
     // settings (TS `getCompactionSettings`): `/compact` matches the
     // `compact.*` turn-boundary tool's `keepRecentTokens`/`reserveTokens`.
