@@ -509,9 +509,12 @@ impl SessionUi {
     }
 
     fn session_display(&self) -> String {
-        self.session_name
-            .clone()
-            .unwrap_or_else(|| crate::chrome::display_name(&self.cwd.to_string_lossy()))
+        // "name(cwd)" so two sessions sharing a name stay distinguishable.
+        let cwd = crate::chrome::display_name(&self.cwd.to_string_lossy());
+        match &self.session_name {
+            Some(name) => format!("{name}({cwd})"),
+            None => cwd,
+        }
     }
 
     pub(crate) async fn current_model_provider(&mut self) -> Option<String> {
