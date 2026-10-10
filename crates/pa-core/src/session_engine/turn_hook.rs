@@ -241,38 +241,41 @@ impl AgentSession {
     }
 }
 
-/// Hidden shell invocation for the hook command lines (shared with the
+/// The shell invocation for the hook command lines (shared with the
 /// agent-end `stopHook` write-back): Unix uses `bash -c`; Windows prefers
-/// the configured shell and falls back to `ComSpec`, with
-/// `CREATE_NO_WINDOW` so the hook never pops a console.
+/// the configured shell and falls back to `ComSpec`.
 #[cfg(unix)]
-pub(super) fn hidden_shell_command(command: &str) -> tokio::process::Command {
-    let mut process = tokio::process::Command::new("bash");
-    process.arg("-c").arg(command);
-    process
+pub(super) fn hidden_shell_args(command: &str) -> (String, Vec<String>) {
+    ("bash".to_string(), vec!["-c".to_string(), command.to_string()])
 }
 
 #[cfg(windows)]
-pub(super) fn hidden_shell_command(command: &str) -> tokio::process::Command {
-    let configured = crate::platform::get_shell_config(None);
-    let mut process = if let Ok(config) = configured {
-        let mut process = tokio::process::Command::new(config.shell);
-        process.args(config.args).arg(command);
-        process
-    } else {
-        let comspec = std::env::var("ComSpec").unwrap_or_else(|_| "cmd.exe".to_string());
-        let mut process = tokio::process::Command::new(comspec);
-        process.args(["/d", "/s", "/c"]).arg(command);
-        process
-    };
-    crate::platform::process::set_no_window(process.as_std_mut());
-    process
+pub(super) fn hidden_shell_args(command: &str) -> (String, Vec<String>) {
+    if let Ok(config) = crate::platform::get_shell_config(None) {
+        let mut args = config.args;
+        args.push(command.to_string());
+        return (config.shell, args);
+    }
+    let comspec = std::env::var("ComSpec").unwrap_or_else(|_| "cmd.exe".to_string());
+    (
+        comspec,
+        vec!["/d".to_string(), "/s".to_string(), "/c".to_string(), command.to_string()],
+    )
 }
 
 #[cfg(not(any(unix, windows)))]
+pub(super) fn hidden_shell_args(command: &str) -> (String, Vec<String>) {
+    ("sh".to_string(), vec!["-c".to_string(), command.to_string()])
+}
+
+/// Build the async command through the platform shell with
+/// `CREATE_NO_WINDOW` so the hook never pops a console.
 pub(super) fn hidden_shell_command(command: &str) -> tokio::process::Command {
-    let mut process = tokio::process::Command::new("sh");
-    process.arg("-c").arg(command);
+    let (shell, args) = hidden_shell_args(command);
+    let mut process = tokio::process::Command::new(shell);
+    process.args(args);
+    #[cfg(windows)]
+    crate::platform::process::set_no_window(process.as_std_mut());
     process
 }
 
