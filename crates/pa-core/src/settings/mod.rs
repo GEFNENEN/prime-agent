@@ -17,5 +17,6 @@ pub use storage::{
 };
 pub use types::{
     AutoRefineSettings, AutonomousSettings, CompactionSettings, QueueModeSetting, Settings,
-    ThinkingLevelSetting, TransportSetting, TurnHookSettings, UpdateChannel, WebSearchProvider,
+    StopHookSettings, ThinkingLevelSetting, TransportSetting, TurnHookSettings, UpdateChannel,
+    WebSearchProvider,
 };
