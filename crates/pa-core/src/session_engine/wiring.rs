@@ -128,10 +128,11 @@ impl AgentSession {
 
     /// Install the configured agent-end write-back hook (`stopHook`
     /// settings): subscribes the loop listener that renders each finished
-    /// run and runs the hook command. The listener answers every event
-    /// immediately (the write-back rides a detached task the loop never
-    /// awaits), so neither a slow hook nor a failed one can fail a run.
-    /// `None` keeps the feature off.
+    /// run and runs the hook command. The listener renders and spawns the
+    /// command inline (the loop awaits listeners before it settles, so the
+    /// child always lands while the host process is alive); only the wait
+    /// is detached, so neither a slow hook nor a failed one can fail a
+    /// run. `None` keeps the feature off.
     pub async fn set_stop_hook(
         &self,
         hook: Option<std::sync::Arc<super::stop_hook::StopHook>>,
@@ -146,7 +147,14 @@ impl AgentSession {
                 let session = std::sync::Arc::clone(&session);
                 Box::pin(async move {
                     if let pa_agent::types::AgentEvent::AgentEnd { messages } = event {
-                        hook.handle_agent_end(session, messages);
+                        let (session_id, cwd) = {
+                            let session = session.lock().await;
+                            (
+                                session.get_session_id().to_string(),
+                                session.get_cwd().display().to_string(),
+                            )
+                        };
+                        hook.note_agent_end(&session_id, &cwd, &messages);
                     }
                     Ok(())
                 })

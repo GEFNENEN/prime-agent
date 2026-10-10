@@ -10,19 +10,18 @@
 //! read through their `transcript_path` contract; the command's stdout
 //! is ignored.
 //!
-//! The listener never blocks the loop: the write-back rides its own
-//! detached task, and overlapping runs serialize on a per-hook flight
-//! mutex (the adapter file is append-only). Fail-open by contract: a
-//! missing command, spawn failure, timeout, or a bad transcript write
-//! is logged and never fails the turn.
+//! The listener calls [`StopHook::note_agent_end`] synchronously while
+//! the run is still settling: the child is spawned before the loop can
+//! finish, so it can never lose a race with process teardown (only the
+//! wait is detached). Fail-open by contract: a missing command, spawn
+//! failure, timeout, or a bad transcript write is logged and never fails
+//! the turn.
 
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
-use std::sync::Arc;
 use std::time::Duration;
 
 use pa_agent::types::{AgentMessage, AssistantContent, Message, ToolCall, UserContent, UserPart};
-use tokio::io::AsyncWriteExt;
 
 use crate::settings::StopHookSettings;
 
@@ -36,16 +35,16 @@ pub struct StopHook {
     command: String,
     timeout_ms: u64,
     transcripts_dir: PathBuf,
-    /// Serializes overlapping write-backs: the adapter file is
-    /// append-only, so one run's rows must land before the next's.
-    flight: tokio::sync::Mutex<()>,
 }
 
 impl StopHook {
     /// Build the hook from the `stopHook` settings; `None` (or a blank
     /// command) keeps the feature off.
     #[must_use]
-    pub fn from_settings(settings: Option<&StopHookSettings>, agent_dir: &Path) -> Option<StopHook> {
+    pub fn from_settings(
+        settings: Option<&StopHookSettings>,
+        agent_dir: &Path,
+    ) -> Option<StopHook> {
         let settings = settings?;
         let command = settings.command.as_ref()?.trim();
         if command.is_empty() {
@@ -57,58 +56,34 @@ impl StopHook {
                 .timeout_ms
                 .unwrap_or(DEFAULT_STOP_HOOK_TIMEOUT_MS),
             transcripts_dir: agent_dir.join("stop-hook"),
-            flight: tokio::sync::Mutex::new(()),
         })
     }
 
-    /// Run the hook for one finished run on its own task: the loop's
-    /// final `agent_end` emission never waits on it.
-    pub fn handle_agent_end(
-        self: &Arc<Self>,
-        session: Arc<tokio::sync::Mutex<crate::session::manager::SessionManager>>,
-        messages: Vec<AgentMessage>,
-    ) {
-        let hook = Arc::clone(self);
-        tokio::spawn(async move {
-            let (session_id, cwd) = {
-                let session = session.lock().await;
-                (
-                    session.get_session_id().to_string(),
-                    session.get_cwd().display().to_string(),
-                )
-            };
-            hook.run_with(&session_id, &cwd, &messages).await;
-        });
-    }
-
-    /// Append the run's adapter rows and run the command. A run that
-    /// rendered no rows (custom-only messages) skips both: the console
-    /// hook would find no turns in the transcript anyway.
-    pub(crate) async fn run_with(&self, session_id: &str, cwd: &str, messages: &[AgentMessage]) {
-        let _flight = self.flight.lock().await;
+    /// Record one finished run: append the adapter rows, then spawn the
+    /// command with the payload on its stdin. Called from the `agent_end`
+    /// listener — the agent loop awaits listeners before it settles, so
+    /// the spawn always lands while the host process is still alive; the
+    /// wait beyond it rides a detached thread, and the child outlives a
+    /// host that exits first.
+    ///
+    /// A run that rendered no rows (custom-only messages) skips both: the
+    /// console hook would find no turns in the transcript anyway.
+    pub fn note_agent_end(&self, session_id: &str, cwd: &str, messages: &[AgentMessage]) {
         let lines = adapter_lines(messages);
         if lines.is_empty() {
             return;
         }
         let transcript_path = self.transcripts_dir.join(format!("{session_id}.jsonl"));
-        let path = transcript_path.clone();
-        match tokio::task::spawn_blocking(move || append_lines(&path, &lines)).await {
-            Ok(Ok(())) => {}
-            Ok(Err(error)) => {
-                tracing::debug!(%error, "stop hook transcript append failed");
-                return;
-            }
-            Err(error) => {
-                tracing::debug!(%error, "stop hook transcript task failed");
-                return;
-            }
+        if let Err(error) = append_lines(&transcript_path, &lines) {
+            tracing::debug!(%error, "stop hook transcript append failed");
+            return;
         }
         let payload = serde_json::json!({
             "session_id": session_id,
             "transcript_path": transcript_path.display().to_string(),
             "cwd": cwd,
         });
-        run_command(&self.command, self.timeout_ms, &payload).await;
+        spawn_command(&self.command, self.timeout_ms, &payload);
     }
 }
 
@@ -126,6 +101,58 @@ fn append_lines(path: &Path, lines: &[String]) -> std::io::Result<()> {
         writeln!(file, "{line}")?;
     }
     Ok(())
+}
+
+/// Spawn the command through the platform shell with the payload on its
+/// stdin; the wait (bounded by the timeout, killing a straggler) rides a
+/// detached thread so neither the loop nor the host teardown can starve
+/// it. Spawn failures are logged and ignored.
+fn spawn_command(command: &str, timeout_ms: u64, payload: &serde_json::Value) {
+    let (shell, args) = super::turn_hook::hidden_shell_args(command);
+    let mut process = std::process::Command::new(shell);
+    process
+        .args(args)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    crate::platform::process::set_no_window(&mut process);
+    let mut child = match process.spawn() {
+        Ok(child) => child,
+        Err(error) => {
+            tracing::debug!(%error, command, "stop hook spawn failed");
+            return;
+        }
+    };
+    {
+        use std::io::Write;
+        let Some(mut stdin) = child.stdin.take() else {
+            return;
+        };
+        if let Err(error) = stdin.write_all(payload.to_string().as_bytes()) {
+            tracing::debug!(%error, "stop hook stdin write failed");
+        }
+        // Dropping the handle closes the pipe so the hook sees EOF.
+    }
+    let reaper = std::thread::Builder::new()
+        .name("stop-hook-reaper".to_string())
+        .spawn(move || {
+            let deadline = std::time::Instant::now() + Duration::from_millis(timeout_ms);
+            loop {
+                match child.try_wait() {
+                    Ok(Some(_)) | Err(_) => return,
+                    Ok(None) => {}
+                }
+                if std::time::Instant::now() >= deadline {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return;
+                }
+                std::thread::sleep(Duration::from_millis(100));
+            }
+        });
+    if let Err(error) = reaper {
+        tracing::debug!(%error, "stop hook reaper spawn failed");
+    }
 }
 
 /// Render the run's messages into dcode-format transcript rows: user and
@@ -228,47 +255,6 @@ fn assistant_text(content: &[AssistantContent]) -> String {
         .to_string()
 }
 
-/// Spawn the command with the payload on stdin, bounded by the
-/// configured timeout; every failure path is logged and ignored.
-async fn run_command(command: &str, timeout_ms: u64, payload: &serde_json::Value) {
-    let mut process = super::turn_hook::hidden_shell_command(command);
-    process
-        .stdin(Stdio::piped())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .kill_on_drop(true);
-    let mut child = match process.spawn() {
-        Ok(child) => child,
-        Err(error) => {
-            tracing::debug!(%error, command, "stop hook spawn failed");
-            return;
-        }
-    };
-    {
-        let Some(mut stdin) = child.stdin.take() else {
-            return;
-        };
-        if let Err(error) = stdin.write_all(payload.to_string().as_bytes()).await {
-            tracing::debug!(%error, "stop hook stdin write failed");
-            return;
-        }
-        // Dropping the handle closes the pipe so the hook sees EOF.
-    }
-    match tokio::time::timeout(Duration::from_millis(timeout_ms), child.wait()).await {
-        Ok(Ok(status)) if status.success() => {}
-        Ok(Ok(status)) => {
-            tracing::debug!(code = status.code(), "stop hook exited non-zero");
-        }
-        Ok(Err(error)) => {
-            tracing::debug!(%error, "stop hook wait failed");
-        }
-        Err(_elapsed) => {
-            // The dropped future reaps the child (`kill_on_drop`).
-            tracing::debug!(timeout_ms, "stop hook timed out");
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -289,7 +275,10 @@ mod tests {
         if !shell_is_bash() {
             return format!("more > \"{}\"", capture.display());
         }
-        format!("cat > '{}'", capture.display().to_string().replace('\\', "/"))
+        format!(
+            "cat > '{}'",
+            capture.display().to_string().replace('\\', "/")
+        )
     }
 
     fn hook(command: &str, dir: &Path) -> StopHook {
@@ -339,6 +328,25 @@ mod tests {
         .unwrap()
     }
 
+    /// The command runs in a child process the test cannot await through
+    /// the hook API, so poll for its output artifact.
+    fn wait_for_file(path: &Path) -> String {
+        let deadline = std::time::Instant::now() + Duration::from_secs(15);
+        loop {
+            if let Ok(body) = std::fs::read_to_string(path) {
+                if !body.is_empty() {
+                    return body;
+                }
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "the hook never produced {}",
+                path.display()
+            );
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    }
+
     #[test]
     fn blank_commands_and_absent_settings_disable_the_hook() {
         let dir = tempfile::tempdir().unwrap();
@@ -364,7 +372,11 @@ mod tests {
             tool_result_message(),
         ];
         let lines = adapter_lines(&messages);
-        assert_eq!(lines.len(), 3, "results and customs render nothing: {lines:?}");
+        assert_eq!(
+            lines.len(),
+            3,
+            "results and customs render nothing: {lines:?}"
+        );
 
         let rows: Vec<serde_json::Value> = lines
             .iter()
@@ -391,14 +403,14 @@ mod tests {
         assert!(adapter_lines(&[custom]).is_empty());
     }
 
-    #[tokio::test]
-    async fn running_the_hook_appends_the_transcript_and_feeds_the_payload() {
+    #[test]
+    fn running_the_hook_appends_the_transcript_and_feeds_the_payload() {
         let dir = tempfile::tempdir().unwrap();
         let capture = dir.path().join("payload.json");
         let hook = hook(&capture_command(&capture), dir.path());
         let messages = vec![user_message("hi there"), assistant_message()];
 
-        hook.run_with("sess-1", "/tmp/work", &messages).await;
+        hook.note_agent_end("sess-1", "/tmp/work", &messages);
 
         let transcript = dir.path().join("stop-hook").join("sess-1.jsonl");
         let body = std::fs::read_to_string(&transcript).expect("adapter transcript exists");
@@ -406,31 +418,32 @@ mod tests {
         assert_eq!(lines.len(), 3);
         assert!(lines[0].contains("\"content\":\"hi there\""));
 
-        let payload =
-            std::fs::read_to_string(&capture).expect("the command captured its stdin payload");
+        let payload = wait_for_file(&capture);
         assert!(
             payload.contains("\"session_id\":\"sess-1\""),
             "payload: {payload}"
         );
-        assert!(payload.contains("\"cwd\":\"/tmp/work\""), "payload: {payload}");
+        assert!(
+            payload.contains("\"cwd\":\"/tmp/work\""),
+            "payload: {payload}"
+        );
         assert!(
             payload.contains(&transcript.display().to_string().replace('\\', "\\\\")),
             "payload: {payload}"
         );
     }
 
-    #[tokio::test]
-    async fn a_failing_command_never_fails_the_write_back() {
+    #[test]
+    fn a_failing_command_never_fails_the_write_back() {
         let dir = tempfile::tempdir().unwrap();
         let hook = hook("exit 3", dir.path());
-        hook.run_with("sess-2", "/tmp/work", &[user_message("boom")])
-            .await;
+        hook.note_agent_end("sess-2", "/tmp/work", &[user_message("boom")]);
         let transcript = dir.path().join("stop-hook").join("sess-2.jsonl");
         assert!(transcript.exists(), "rows land before the command runs");
     }
 
-    #[tokio::test]
-    async fn a_custom_only_run_skips_the_command() {
+    #[test]
+    fn a_custom_only_run_skips_the_command() {
         let dir = tempfile::tempdir().unwrap();
         let capture = dir.path().join("payload.json");
         let hook = hook(&capture_command(&capture), dir.path());
@@ -439,7 +452,8 @@ mod tests {
             "kind": "notice",
         }))
         .unwrap();
-        hook.run_with("sess-3", "/tmp/work", &[custom]).await;
+        hook.note_agent_end("sess-3", "/tmp/work", &[custom]);
+        std::thread::sleep(Duration::from_millis(300));
         assert!(
             !dir.path().join("stop-hook").join("sess-3.jsonl").exists(),
             "no rows means no transcript"
