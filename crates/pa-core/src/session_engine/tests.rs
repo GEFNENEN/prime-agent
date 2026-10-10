@@ -1429,3 +1429,78 @@ async fn run_boundaries_record_git_state() {
         ]
     );
 }
+
+/// The configured `turnHook` reaches the real request path: the admitted
+/// turn's first LLM call carries the hook's `additionalContext` appended
+/// to the system prompt.
+#[tokio::test]
+async fn an_admitted_turn_runs_the_turn_hook_into_the_system_prompt() {
+    let provider = Arc::new(ScriptedProvider::new(test_model()));
+    provider.push_text_turn("hello from the model");
+    let command = {
+        #[cfg(windows)]
+        {
+            // The hook command runs through the platform shell (bash when
+            // Git Bash resolves, `cmd.exe` otherwise).
+            let payload = r#"{"hookSpecificOutput":{"additionalContext":"HOOKED"}}"#;
+            let is_bash = crate::platform::get_shell_config(None)
+                .map_or(false, |config| config.shell.to_ascii_lowercase().contains("bash"));
+            if is_bash {
+                format!("printf '%s' '{payload}'")
+            } else {
+                format!("echo {payload}")
+            }
+        }
+        #[cfg(not(windows))]
+        {
+            r#"printf '%s' '{"hookSpecificOutput":{"additionalContext":"HOOKED"}}'"#.to_string()
+        }
+    };
+    let hook = crate::session_engine::turn_hook::TurnHook::from_settings(Some(
+        &crate::settings::TurnHookSettings {
+            command: Some(command),
+            timeout_ms: None,
+        },
+    ))
+    .expect("the test hook builds");
+    let options = AgentOptions {
+        initial_state: AgentInitialState {
+            system_prompt: Some("BASE PROMPT".to_string()),
+            model: Some(test_model()),
+            ..Default::default()
+        },
+        stream_fn: Some(provider.stream_fn()),
+        transform_context: Some(hook.wrap_transform(Arc::new(|messages, _signal| {
+            Box::pin(async move { Ok(messages) })
+        }))),
+        get_system_prompt: Some(hook.resolver("BASE PROMPT")),
+        ..Default::default()
+    };
+    let agent = Agent::new(options);
+    let tmp = tempfile::tempdir().unwrap();
+    let session = SessionManager::in_memory(tmp.path());
+    let mut engine = AgentSession::new(Arc::new(agent), session, vec![])
+        .await
+        .unwrap();
+    engine.set_turn_hook(Some(hook));
+    engine
+        .prompt("run the hook", PromptOptions::default())
+        .await
+        .unwrap();
+    engine.agent().wait_for_idle().await;
+
+    let calls = provider.calls();
+    assert_eq!(calls.len(), 1, "one request served the turn");
+    let system_prompt = calls[0]
+        .system_prompt
+        .as_deref()
+        .expect("the request carries a system prompt");
+    assert!(
+        system_prompt.contains("BASE PROMPT"),
+        "the base prompt stays: {system_prompt}"
+    );
+    assert!(
+        system_prompt.ends_with("HOOKED"),
+        "the hook context is appended: {system_prompt}"
+    );
+}

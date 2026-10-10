@@ -135,6 +135,10 @@ impl AgentSession {
             // downgrading the images to placeholders.
             self.apply_image_model_routing(&images, &options.batch)
                 .await?;
+            // The configured turn hook (TS `before_agent_start` parity):
+            // the note rides this turn's first request transform; a failed
+            // admission below discards it so the next turn never runs it.
+            self.note_turn_hook(&normalized).await;
             // The turn's prompt messages: the deferred first-turn harness
             // digest rides first when one is due, streamed ahead of the user
             // prompt and carried on `agent_end`.
@@ -175,6 +179,7 @@ impl AgentSession {
                             self.agent.set_model_override(None);
                         }
                     }
+                    self.discard_turn_hook_note();
                     return Err(error);
                 }
             } else if let Err(error) = self
@@ -192,6 +197,7 @@ impl AgentSession {
                         self.agent.set_model_override(None);
                     }
                 }
+                self.discard_turn_hook_note();
                 return Err(error);
             }
         }

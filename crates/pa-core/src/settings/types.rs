@@ -298,6 +298,22 @@ pub enum McpServerConfig {
     },
 }
 
+/// The settings `turnHook` (the TS `before_agent_start` extension
+/// parity): a shell command the session runs before each admitted user
+/// turn with a `{prompt, cwd, session_id}` JSON payload on stdin; the
+/// `hookSpecificOutput.additionalContext` of its stdout JSON is appended
+/// to that turn's system prompt. Fail-open: absent, failing, timed-out,
+/// or empty output injects nothing.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TurnHookSettings {
+    /// Shell command line the hook runs through the platform shell.
+    pub command: Option<String>,
+    /// Wall-clock bound per turn in milliseconds (default 30000: the
+    /// console-side hook caps a first-turn reflect at 25s).
+    pub timeout_ms: Option<u64>,
+}
+
 /// The settings document: every known field optional; unknown keys preserved.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
@@ -376,6 +392,9 @@ pub struct Settings {
     /// Log per-request provider timing phases to the diagnostic log
     /// (unset means OFF, exactly the TS default).
     pub request_timing: Option<bool>,
+    /// The per-turn system-prompt hook (see [`TurnHookSettings`]); unset
+    /// disables it.
+    pub turn_hook: Option<TurnHookSettings>,
     /// Unknown keys survive load/save round-trips (forward compatibility).
     #[serde(flatten, skip_serializing_if = "serde_json::Map::is_empty")]
     pub extra: serde_json::Map<String, serde_json::Value>,

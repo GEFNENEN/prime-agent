@@ -11,8 +11,8 @@ use tokio::sync::watch;
 use crate::abort::{AbortController, AbortSignal};
 use crate::agent_loop::{
     AfterToolCallFn, AgentEventSink, AgentLoopConfig, BeforeToolCallFn, ConvertToLlmFn,
-    GetContinuationMessagesFn, PollMessagesFn, ShouldStopAfterTurnFn, ShouldStopBeforeTurnFn,
-    TransformContextFn,
+    GetContinuationMessagesFn, GetSystemPromptFn, PollMessagesFn, ShouldStopAfterTurnFn,
+    ShouldStopBeforeTurnFn, TransformContextFn,
 };
 use crate::stream::StreamFn;
 use crate::types::{
@@ -98,6 +98,10 @@ pub struct AgentOptions {
     pub should_stop_after_turn: Option<ShouldStopAfterTurnFn>,
     pub should_stop_before_turn: Option<ShouldStopBeforeTurnFn>,
     pub get_continuation_messages: Option<GetContinuationMessagesFn>,
+    /// Resolves the system prompt immediately before each LLM call (TS
+    /// `getSystemPrompt`): the host seam a per-turn system-prompt hook
+    /// injects through, without mutating the stored state prompt.
+    pub get_system_prompt: Option<GetSystemPromptFn>,
     pub steering_mode: Option<QueueMode>,
     pub follow_up_mode: Option<QueueMode>,
     pub session_id: Option<String>,
@@ -335,6 +339,9 @@ struct AgentInner {
     after_tool_call: Option<AfterToolCallFn>,
     should_stop_after_turn: Option<ShouldStopAfterTurnFn>,
     should_stop_before_turn: Option<ShouldStopBeforeTurnFn>,
+    /// Resolves the system prompt immediately before each LLM call; `None`
+    /// keeps the stored state prompt (the `AgentLoopConfig` default).
+    get_system_prompt: Option<GetSystemPromptFn>,
     /// The natural-turn-end continuation hook: settable after construction so the session engine
     /// can install it. A plain mutex: cloned at run-config build, never held across an await.
     get_continuation_messages: Mutex<Option<GetContinuationMessagesFn>>,
@@ -572,6 +579,7 @@ impl AgentInner {
         config.get_steering_messages = Some(steering);
         config.get_follow_up_messages = Some(follow_up);
         config.get_continuation_messages = continuation;
+        config.get_system_prompt.clone_from(&self.get_system_prompt);
         config.tool_execution = self.tool_execution;
         config.tool_progress = self.tool_progress;
         config.before_tool_call.clone_from(&self.before_tool_call);
@@ -796,6 +804,7 @@ impl Agent {
             after_tool_call: options.after_tool_call,
             should_stop_after_turn: options.should_stop_after_turn,
             should_stop_before_turn: options.should_stop_before_turn,
+            get_system_prompt: options.get_system_prompt,
             get_continuation_messages: Mutex::new(options.get_continuation_messages),
             message_end_transform: Mutex::new(None),
             model_override: Mutex::new(None),

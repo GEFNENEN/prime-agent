@@ -14,7 +14,7 @@ use crate::resources::{load_resources, ResourceLoaderOptions};
 use crate::session::manager::SessionManager;
 use crate::skills::PromptTemplate;
 
-use super::{AgentSession, PromptOptions, PromptOutcome};
+use super::{turn_hook::TurnHook, AgentSession, PromptOptions, PromptOutcome};
 
 /// The background MCP settle's per-server open bound (the kernel's
 /// `mcp_status` listing opens each not-yet-connected server bounded per
@@ -270,6 +270,9 @@ pub async fn create_session(mut config: SessionEngineConfig) -> anyhow::Result<S
     // factory host bridge's preflight facts (the daemon `allowedModels`
     // pin), like the request-timing snapshot above.
     let factory_allowed_models = settings.get_allowed_models();
+    // Captured before `settings` moves into the resource loader: the
+    // per-turn prompt hook (`turnHook`) the admitted-turn transform runs.
+    let turn_hook_settings = settings.settings().turn_hook.clone();
     let (mcp_skill_overrides, mcp_generic_servers, built_manager) =
         mcp_gating(&settings, config.agent_dir.clone()).await?;
     let mcp_manager = config
@@ -687,6 +690,21 @@ pub async fn create_session(mut config: SessionEngineConfig) -> anyhow::Result<S
         }
         None => timing_stream_fn,
     };
+    // The configured per-turn prompt hook (`turnHook` settings): its
+    // resolver rides the loop's `get_system_prompt` seam and its command
+    // runs from the admitted turn's first context transform.
+    let turn_hook = TurnHook::from_settings(turn_hook_settings.as_ref());
+    let instrumented_transform = super::request_timing::instrument_transform_context(
+        std::sync::Arc::clone(&request_timing_wiring),
+        super::request_timing::pass_through_transform(),
+    );
+    let transform_context = match turn_hook.as_ref() {
+        Some(hook) => hook.wrap_transform(instrumented_transform),
+        None => instrumented_transform,
+    };
+    let get_system_prompt = turn_hook
+        .as_ref()
+        .map(|hook| hook.resolver(&system_prompt));
     let agent = Agent::new(AgentOptions {
         initial_state: AgentInitialState {
             system_prompt: Some(system_prompt.clone()),
@@ -704,11 +722,10 @@ pub async fn create_session(mut config: SessionEngineConfig) -> anyhow::Result<S
             super::refinement_gate::convert_to_llm(refinement_settings.reopen()),
         )),
         // The Rust engine wires no transform, so the instrumented seam
-        // wraps a pass-through that marks the turn's dispatch moment.
-        transform_context: Some(super::request_timing::instrument_transform_context(
-            std::sync::Arc::clone(&request_timing_wiring),
-            super::request_timing::pass_through_transform(),
-        )),
+        // wraps a pass-through that marks the turn's dispatch moment; the
+        // turn hook's runner (when configured) wraps outside it.
+        transform_context: Some(transform_context),
+        get_system_prompt,
         should_stop_after_turn: {
             let steering = config.queued_steering_probe.take();
             let boundary = config.should_stop_after_turn.take();
@@ -783,6 +800,7 @@ pub async fn create_session(mut config: SessionEngineConfig) -> anyhow::Result<S
             .digest_pending
             .store(true, std::sync::atomic::Ordering::SeqCst);
     }
+    session.set_turn_hook(turn_hook);
     // Every compaction path reads the session's resolved compaction
     // settings (TS `getCompactionSettings`): `/compact` matches the
     // `compact.*` turn-boundary tool's `keepRecentTokens`/`reserveTokens`.

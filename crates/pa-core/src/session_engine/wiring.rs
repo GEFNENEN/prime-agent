@@ -1,6 +1,6 @@
 use super::{
     auxiliary_model, compaction, compaction_exec, image_model_routing, ipython_state,
-    provider_adapter, refine, semantic_edges, telemetry, AgentSession, PromptBatchRow,
+    provider_adapter, refine, semantic_edges, telemetry, turn_hook, AgentSession, PromptBatchRow,
 };
 
 impl AgentSession {
@@ -117,6 +117,13 @@ impl AgentSession {
     /// keeps the fail-closed disabled default.
     pub fn set_agent_dir(&mut self, agent_dir: std::path::PathBuf) {
         self.agent_dir = Some(agent_dir);
+    }
+
+    /// Install the configured per-turn system-prompt hook (`turnHook`
+    /// settings). The hook runs at each admitted user turn; `None` keeps
+    /// the feature off.
+    pub fn set_turn_hook(&mut self, hook: Option<turn_hook::TurnHook>) {
+        self.turn_hook = hook;
     }
 
     /// Bind the kernel-state probe behind the post-compaction
