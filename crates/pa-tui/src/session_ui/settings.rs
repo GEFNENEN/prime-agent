@@ -259,10 +259,12 @@ impl SessionUi {
             // No settings seam: the tier row reads "default", never a blank value.
             values.default_service_tier = "default".to_string();
         }
-        // This surface ships the builtin themes.
+        // This surface ships the builtin themes plus the user's own files
+        // under `<agent_dir>/themes`.
         values.available_themes = pa_types::themes::BUILTIN_THEME_NAMES
             .iter()
             .map(ToString::to_string)
+            .chain(crate::theme::custom_theme_names())
             .collect();
         let rows = crate::settings_menu::settings_menu_rows(&values);
         view.settings_menu = Some(crate::settings_menu::SettingsMenu::new(rows));
