@@ -241,18 +241,19 @@ impl AgentSession {
     }
 }
 
-/// Hidden shell invocation for the hook command line: Unix uses `bash -c`;
-/// Windows prefers the configured shell and falls back to `ComSpec`, with
+/// Hidden shell invocation for the hook command lines (shared with the
+/// agent-end `stopHook` write-back): Unix uses `bash -c`; Windows prefers
+/// the configured shell and falls back to `ComSpec`, with
 /// `CREATE_NO_WINDOW` so the hook never pops a console.
 #[cfg(unix)]
-fn hidden_shell_command(command: &str) -> tokio::process::Command {
+pub(super) fn hidden_shell_command(command: &str) -> tokio::process::Command {
     let mut process = tokio::process::Command::new("bash");
     process.arg("-c").arg(command);
     process
 }
 
 #[cfg(windows)]
-fn hidden_shell_command(command: &str) -> tokio::process::Command {
+pub(super) fn hidden_shell_command(command: &str) -> tokio::process::Command {
     let configured = crate::platform::get_shell_config(None);
     let mut process = if let Ok(config) = configured {
         let mut process = tokio::process::Command::new(config.shell);
@@ -269,7 +270,7 @@ fn hidden_shell_command(command: &str) -> tokio::process::Command {
 }
 
 #[cfg(not(any(unix, windows)))]
-fn hidden_shell_command(command: &str) -> tokio::process::Command {
+pub(super) fn hidden_shell_command(command: &str) -> tokio::process::Command {
     let mut process = tokio::process::Command::new("sh");
     process.arg("-c").arg(command);
     process
