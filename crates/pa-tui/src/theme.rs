@@ -800,6 +800,67 @@ pub fn load_theme_from_path(path: &std::path::Path, mode: ColorMode) -> Result<T
     Ok(Theme::from_json(&json, mode))
 }
 
+/// Resolve a theme by name: a bundled palette first, else
+/// `<agent_dir>/themes/<name>.json`. `None` when neither exists or the custom
+/// file will not parse, so the caller owns the fallback.
+#[must_use]
+pub fn resolve_theme(name: &str, mode: ColorMode) -> Option<Theme> {
+    if let Some(raw) = pa_types::themes::builtin_theme_json(name) {
+        let json: ThemeJson = serde_json::from_str(raw).ok()?;
+        return Some(Theme::from_json(&json, mode));
+    }
+    let path = custom_theme_path(name)?;
+    load_theme_from_path(&path, mode).ok()
+}
+
+/// `<agent_dir>/themes/<name>.json`; `None` when the agent dir does not
+/// resolve or the name would escape it.
+#[must_use]
+pub fn custom_theme_path(name: &str) -> Option<std::path::PathBuf> {
+    let safe = theme_name_is_safe(name);
+    if !safe {
+        return None;
+    }
+    let agent_dir = pa_types::platform::agent_dir()?;
+    Some(agent_dir.join("themes").join(format!("{name}.json")))
+}
+
+/// The custom themes declared under `<agent_dir>/themes`, sorted by stem. An
+/// unreadable directory reads as empty (the builtins still resolve).
+#[must_use]
+pub fn custom_theme_names() -> Vec<String> {
+    let Some(agent_dir) = pa_types::platform::agent_dir() else {
+        return Vec::new();
+    };
+    let Ok(entries) = std::fs::read_dir(agent_dir.join("themes")) else {
+        return Vec::new();
+    };
+    let mut names: Vec<String> = entries
+        .flatten()
+        .filter_map(|entry| {
+            let path = entry.path();
+            if path.extension()?.to_str()? != "json" {
+                return None;
+            }
+            let stem = path.file_stem()?.to_str()?.to_string();
+            theme_name_is_safe(&stem).then_some(stem)
+        })
+        .collect();
+    names.sort();
+    names.dedup();
+    names
+}
+
+/// A theme name maps to one `<name>.json` file, so reject anything that
+/// would traverse out of the themes directory or name no file at all.
+fn theme_name_is_safe(name: &str) -> bool {
+    !name.is_empty()
+        && !name.contains(['/', '\\', '.'])
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -820,6 +881,91 @@ mod tests {
     fn rgb_to_256_gray() {
         assert_eq!(rgb_to_256((0, 0, 0)), 16);
         assert_eq!(rgb_to_256((255, 255, 255)), 231);
+    }
+
+    #[test]
+    fn theme_name_is_safe_rejects_path_shapes() {
+        assert!(theme_name_is_safe("tokyo-night-moon"));
+        assert!(theme_name_is_safe("tokyo_night_moon"));
+        assert!(theme_name_is_safe("TokyoNight2"));
+        assert!(!theme_name_is_safe(""));
+        assert!(!theme_name_is_safe("../escape"));
+        assert!(!theme_name_is_safe("..\\escape"));
+        assert!(!theme_name_is_safe("nested/name"));
+        assert!(!theme_name_is_safe("nested\\name"));
+        // The extension is appended by the loader, so a dotted name would
+        // produce `<name>.json.json`.
+        assert!(!theme_name_is_safe("already.json"));
+    }
+
+    /// `PRIME_AGENT_CODING_AGENT_DIR` is process-global, so the themes tests
+    /// that point it at a fixture directory serialize on this lock.
+    static THEMES_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn with_themes_dir<T>(dir: &std::path::Path, body: impl FnOnce() -> T) -> T {
+        let _guard = THEMES_ENV_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let previous = std::env::var_os(pa_types::platform::dirs::ENV_AGENT_DIR);
+        std::env::set_var(pa_types::platform::dirs::ENV_AGENT_DIR, dir);
+        let out = body();
+        match previous {
+            Some(value) => std::env::set_var(pa_types::platform::dirs::ENV_AGENT_DIR, value),
+            None => std::env::remove_var(pa_types::platform::dirs::ENV_AGENT_DIR),
+        }
+        out
+    }
+
+    /// A custom theme resolves by name from `<agent_dir>/themes`, and the
+    /// builtins keep winning for their own names.
+    #[test]
+    fn custom_theme_resolves_by_name_after_the_builtins() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let themes = dir.path().join("themes");
+        std::fs::create_dir_all(&themes).expect("themes dir");
+        std::fs::write(
+            themes.join("mine.json"),
+            r##"{ "name": "mine", "colors": { "accent": "#010203" } }"##,
+        )
+        .expect("write theme");
+
+        let (resolved, names, builtin, missing) = with_themes_dir(dir.path(), || {
+            (
+                resolve_theme("mine", ColorMode::TrueColor),
+                custom_theme_names(),
+                resolve_theme("prime", ColorMode::TrueColor),
+                resolve_theme("absent", ColorMode::TrueColor),
+            )
+        });
+
+        let theme = resolved.expect("the custom theme resolves");
+        assert!(matches!(
+            theme.fg_style(ThemeColor::Accent).fg,
+            Some(Color::Rgb(0x01, 0x02, 0x03))
+        ));
+        assert_eq!(names, vec!["mine".to_string()]);
+        assert!(builtin.is_some(), "the builtin still resolves");
+        assert!(missing.is_none(), "an unknown name stays unresolved");
+    }
+
+    /// A theme that cannot be read or parsed resolves to `None` so
+    /// `load_theme` can keep its brand fallback.
+    #[test]
+    fn an_unreadable_custom_theme_resolves_to_none() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let themes = dir.path().join("themes");
+        std::fs::create_dir_all(&themes).expect("themes dir");
+        std::fs::write(themes.join("broken.json"), "{ not json").expect("write theme");
+
+        let (broken, traversal) = with_themes_dir(dir.path(), || {
+            (
+                resolve_theme("broken", ColorMode::TrueColor),
+                resolve_theme("../escape", ColorMode::TrueColor),
+            )
+        });
+
+        assert!(broken.is_none());
+        assert!(traversal.is_none(), "a traversing name must not resolve");
     }
 
     #[test]
