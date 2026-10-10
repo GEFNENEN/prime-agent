@@ -27,7 +27,7 @@ pub const BOOTSTRAP_EXECUTION_TIMEOUT_MS: u64 = 30_000;
 #[cfg(test)]
 pub const BOOTSTRAP_EXECUTION_TIMEOUT_MS: u64 = 500;
 pub const KERNEL_ABORT_GRACE_MS: u64 = 1_000;
-pub const KERNEL_BUSY_REUSE_WAIT_MS: u64 = 5_000;
+pub const KERNEL_BUSY_REUSE_WAIT_MS: u64 = 30_000;
 pub const KERNEL_BUSY_INTERRUPT_INTERVAL_MS: u64 = 500;
 /// How long a wait whose wake level was already pending at the write
 /// settles for before detaching: a quick cell answers its own tool result
