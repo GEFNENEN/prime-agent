@@ -49,6 +49,7 @@ pub mod state_restore_notice;
 pub mod telemetry;
 pub mod tool_bridge;
 pub mod turn_boundary;
+pub mod turn_hook;
 
 mod admission;
 mod compaction_arms;
@@ -191,10 +192,11 @@ pub struct AgentSession {
     /// resolves it (verification harnesses building the session directly
     /// keep `None`, which reads as the fail-closed disabled default).
     agent_dir: Option<std::path::PathBuf>,
-    /// Where the session's own model calls outside the agent loop record
-    /// their `model_usage` rows: the session file unless the host binds
-    /// its durable store (the daemon worker's).
     usage_store: std::sync::Arc<dyn rlm_usage::RlmChildUsageStore>,
+    /// The configured per-turn system-prompt hook (`turnHook` settings);
+    /// `None` keeps the feature off (verification harnesses building the
+    /// session directly never wire one).
+    turn_hook: Option<turn_hook::TurnHook>,
 }
 
 impl AgentSession {
@@ -264,6 +266,7 @@ impl AgentSession {
             semantic_edges: std::sync::Mutex::new(None),
             side_question_stream_fn: std::sync::Mutex::new(None),
             agent_dir: None,
+            turn_hook: None,
             compaction_flight: Arc::new(tokio::sync::Mutex::new(())),
             refinements_in_flight: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             refinement_cancel: std::sync::Mutex::default(),
