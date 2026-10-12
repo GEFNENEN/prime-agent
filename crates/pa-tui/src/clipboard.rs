@@ -226,8 +226,31 @@ const PIPE_POLL: Duration = Duration::from_millis(20);
 /// Run `program` with `text` on its stdin: a helper that does not finish
 /// inside the cap is killed and reported as a failed copy.
 fn pipe_to(program: &str, args: &[&str], text: &str) -> bool {
-    let Ok(mut child) = Command::new(program)
-        .args(args)
+    let mut command = Command::new(program);
+    command.args(args);
+    pipe_to_command(command, text)
+}
+
+/// `pipe_to` into a private hidden console on Windows: the helper's own
+/// console keeps a `chcp` from touching the caller's, and a copy never
+/// surfaces a window. Everywhere else this is the plain `pipe_to` shape.
+fn pipe_to_hidden(program: &str, args: &[&str], text: &str) -> bool {
+    let mut command = Command::new(program);
+    command.args(args);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        // CREATE_NO_WINDOW: the helper's console exists but shows no window.
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+    pipe_to_command(command, text)
+}
+
+/// The shared `pipe_to` body: a helper that does not finish inside the
+/// cap is killed and reported as a failed copy.
+fn pipe_to_command(mut command: Command, text: &str) -> bool {
+    let Ok(mut child) = command
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -357,7 +380,12 @@ fn copy_with_env(text: &str, sink: &mut OscSink, env: &Env) -> Result<CopyOutcom
     } else {
         match std::env::consts::OS {
             "macos" => pipe_to("pbcopy", &[], text),
-            "windows" => pipe_to("clip", &[], text),
+            // clip.exe decodes piped input with the console's codepage
+            // (GBK, 936 on the Chinese locale), so raw UTF-8 payloads
+            // arrive doubly encoded — English passes, CJK arrives as
+            // mojibake. A private console set to codepage 65001 decodes
+            // the UTF-8 bytes as written.
+            "windows" => pipe_to_hidden("cmd", &["/d", "/s", "/c", "chcp 65001>nul & clip"], text),
             _ => copy_on_linux(text, env),
         }
     };
@@ -427,6 +455,37 @@ mod tests {
                 assert_eq!(bytes, "\x1b]52;c;cGFyaXR5IHRleHQ=\x07");
             }
             OscSink::Stdout => panic!("the buffer sink captured nothing"),
+        }
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn a_private_console_copy_round_trips_non_ascii_text() {
+        use std::os::windows::process::CommandExt;
+        // The real clipboard needs an interactive desktop session and the
+        // test clobbers whatever the user copied: opt in explicitly.
+        if std::env::var_os("PRIME_AGENT_CLIPBOARD_TESTS").is_none() {
+            return;
+        }
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        for text in ["复制测试 done 🎉 完成", "plain ascii text 123"] {
+            assert!(
+                pipe_to_hidden("cmd", &["/d", "/s", "/c", "chcp 65001>nul & clip"], text),
+                "clip.exe should accept the payload for {text:?}"
+            );
+            let read_back = Command::new("powershell.exe")
+                .args([
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-Command",
+                    "[Console]::OutputEncoding=[Text.Encoding]::UTF8; [Console]::Out.Write((Get-Clipboard -Raw))",
+                ])
+                .creation_flags(CREATE_NO_WINDOW)
+                .output()
+                .expect("powershell.exe runs");
+            assert!(read_back.status.success(), "Get-Clipboard fails: {read_back:?}");
+            let got = String::from_utf8(read_back.stdout).expect("utf8 output");
+            assert_eq!(got, text, "the copy must round-trip without mojibake");
         }
     }
 
