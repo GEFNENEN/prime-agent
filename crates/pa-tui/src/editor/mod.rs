@@ -27,8 +27,8 @@ pub use text_utils::normalize_text;
 pub use wrap::{is_atomic_marker, word_wrap_line, LayoutLine, Segment, TextChunk, VisualLine};
 
 pub const MAX_HISTORY: usize = 100;
-/// Large paste threshold: >10 lines or >1000 chars becomes a marker.
-const LARGE_PASTE_LINES: usize = 10;
+/// Paste threshold: any multi-line paste, or a single line over this many
+/// characters, becomes a marker; the marker expands on submit.
 const LARGE_PASTE_CHARS: usize = 1000;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -681,11 +681,11 @@ impl Editor {
             }
         }
         let line_count = filtered.split('\n').count();
-        if line_count > LARGE_PASTE_LINES || filtered.chars().count() > LARGE_PASTE_CHARS {
+        if line_count > 1 || filtered.chars().count() > LARGE_PASTE_CHARS {
             self.paste_counter += 1;
             let id = self.paste_counter;
             self.pastes.insert(id, filtered.clone());
-            let marker = if line_count > LARGE_PASTE_LINES {
+            let marker = if line_count > 1 {
                 format!("[paste #{id} +{line_count} lines]")
             } else {
                 format!("[paste #{} {} chars]", id, filtered.chars().count())
@@ -744,9 +744,10 @@ mod tests {
         // A tmux csi-u paste re-encodes newlines as CSI-u Ctrl+J; the
         // newline survives instead of leaking "[106;5u" into the editor.
         let mut e = ed();
-        e.handle_paste("alpha\x1b[106;5ubeta");
-        assert_eq!(e.get_text(), "alpha\nbeta");
-        assert_eq!(e.get_lines(), vec!["alpha", "beta"]);
+        let d = e.handle_paste("alpha\x1b[106;5ubeta");
+        assert!(matches!(d, PasteDisposition::Marker { id: 1 }));
+        assert_eq!(e.get_text(), "[paste #1 +2 lines]");
+        assert_eq!(e.get_expanded_text(), "alpha\nbeta");
     }
 
     #[test]
@@ -1087,8 +1088,18 @@ mod tests {
     #[test]
     fn small_paste_inline() {
         let mut e = ed();
-        e.handle_paste("one\ntwo");
-        assert_eq!(e.get_text(), "one\ntwo");
+        let d = e.handle_paste("one\ntwo");
+        assert!(matches!(d, PasteDisposition::Marker { id: 1 }));
+        assert_eq!(e.get_text(), "[paste #1 +2 lines]");
+        assert_eq!(e.get_expanded_text(), "one\ntwo");
+    }
+
+    #[test]
+    fn a_single_line_paste_stays_inline() {
+        let mut e = ed();
+        let d = e.handle_paste("one two");
+        assert!(matches!(d, PasteDisposition::Inline));
+        assert_eq!(e.get_text(), "one two");
     }
 
     #[test]
@@ -1107,7 +1118,8 @@ mod tests {
         e.handle_input("ctrl+-");
         assert_eq!(e.get_text(), "x", "one undo removed the whole paste");
         e.handle_paste("one\ntwo");
-        assert_eq!(e.get_text(), "xone\ntwo");
+        assert_eq!(e.get_text(), "x[paste #1 +2 lines]");
+        assert_eq!(e.get_expanded_text(), "xone\ntwo");
         e.handle_input("ctrl+-");
         assert_eq!(e.get_text(), "x");
     }
