@@ -170,6 +170,9 @@ pub fn handle_public_command(args: &[String]) -> PublicCommandResult {
         "schedule" => run_nested_agent_command("schedule", "cron", &rest),
         "status" => run_status(&rest),
         "doctor" => run_doctor(&rest),
+        "clean-kernel-state" => {
+            handled_with_exit(crate::clean_kernel_state::run_clean_kernel_state(&rest))
+        }
         "telemetry" => run_telemetry(&rest),
         "incident" => run_incident_command(&rest),
         "shutdown" => run_shutdown(&rest),

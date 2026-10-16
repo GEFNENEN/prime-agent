@@ -133,6 +133,26 @@ pub const COMMAND_SPECS: &[CommandSpec] = &[
         "--json  Print JSON",
     ]),
     CommandSpec::new(
+        &["clean-kernel-state"],
+        "clean-kernel-state [--days <n>] [--dry-run] [--json]",
+        "Delete stale kernel-state snapshot files from session artifacts",
+    )
+    .description(
+        "Removes kernel-state.dill, kernel-state.json, and leftover kernel-state.*.tmp \
+files older than the threshold (default: 1 day) from <agent-dir>/session-artifacts. \
+Sessions, transcripts, scheduled jobs, and directories are never touched; a session \
+restored after its snapshot was removed starts with an empty kernel namespace.",
+    )
+    .options(&[
+        "--days <n>  Age threshold in days (default: 1; 0 matches every snapshot)",
+        "--dry-run   List the files that would be removed without deleting them",
+        "--json      Print JSON",
+    ])
+    .examples(&[
+        "clean-kernel-state --dry-run",
+        "clean-kernel-state --days 7",
+    ]),
+    CommandSpec::new(
         &["incident"],
         "incident [--since <time>] [--until <time>] [--session <id>]",
         "Reconstruct a daemon incident from its logs",
