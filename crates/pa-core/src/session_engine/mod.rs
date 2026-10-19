@@ -32,6 +32,7 @@ pub mod provider_retry;
 pub mod refine;
 mod refinement_gate;
 pub mod request_timing;
+pub(crate) mod retry_nudge;
 pub mod rlm_host;
 pub mod rlm_notices;
 pub mod rlm_usage;
@@ -191,6 +192,10 @@ pub struct AgentSession {
     /// `None` keeps the feature off (verification harnesses building the
     /// session directly never wire one).
     turn_hook: Option<turn_hook::TurnHook>,
+    /// A one-shot nudge the next request transform appends as a trailing
+    /// user turn (the empty-reply retry). Request-only: it never enters
+    /// the session history, so a retry cannot pollute the transcript.
+    retry_nudge: std::sync::Arc<std::sync::Mutex<Option<String>>>,
 }
 
 impl AgentSession {
@@ -260,6 +265,7 @@ impl AgentSession {
             side_question_stream_fn: std::sync::Mutex::new(None),
             agent_dir: None,
             turn_hook: None,
+            retry_nudge: std::sync::Arc::new(std::sync::Mutex::new(None)),
             compaction_flight: tokio::sync::Mutex::new(()),
         };
         this.ensure_harness_digest_context().await?;

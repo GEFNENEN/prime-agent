@@ -367,6 +367,11 @@ impl AgentSessionEngine {
                             drop_trailing_assistant(&agent).await;
                         }
                         let mut admit_prompt = first;
+                        // One automatic retry per attempt for a finished
+                        // turn the user cannot act on (no text, no tool
+                        // call). Without it the run ends silently: the
+                        // providers stop cleanly on thinking-only replies.
+                        let mut empty_reply_retried = false;
                         loop {
                             let assistant = match self
                                 .run_turn_once(
@@ -387,6 +392,25 @@ impl AgentSessionEngine {
                                 Ok(TurnOnce::Aborted) => return Ok(aborted_message(&model)),
                                 Err(error) => return Err(error),
                             };
+                            if is_empty_reply(&assistant) {
+                                if !empty_reply_retried {
+                                    empty_reply_retried = true;
+                                    // Queue the request-only nudge, drop
+                                    // the empty assistant, and re-issue
+                                    // the same turn without re-admitting
+                                    // the prompt.
+                                    if let Some(core) = self.session.lock().await.clone() {
+                                        core.session.queue_retry_nudge(EMPTY_REPLY_RETRY_NUDGE);
+                                    }
+                                    drop_trailing_assistant(&agent).await;
+                                    admit_prompt = false;
+                                    continue;
+                                }
+                                // Still empty: never end the turn
+                                // silently — surface a visible warning.
+                                emit(EngineEvent::CustomMessage(empty_reply_warning()));
+                                return Ok(assistant);
+                            }
                             if !self
                                 .threshold_yielded
                                 .swap(false, std::sync::atomic::Ordering::SeqCst)
@@ -623,5 +647,81 @@ impl AgentSessionEngine {
                 assistant: None,
             },
         }
+    }
+}
+
+/// The trailing user nudge the empty reply is retried with. Request-only:
+/// the engine's transform drains it after assembling the request, so it
+/// never enters the persisted history.
+const EMPTY_REPLY_RETRY_NUDGE: &str = "Your previous reply was empty: no user-visible text and no tool calls. Continue the task now - answer the user or call the tools you need. Never reply with an empty message.";
+
+/// True when a finished assistant message carries nothing the user can act
+/// on: no non-blank text and no tool call. Thinking-only replies count as
+/// empty (providers stop cleanly on them and the run would end silently).
+fn is_empty_reply(message: &pa_agent::types::AssistantMessage) -> bool {
+    is_empty_content(&message.content)
+}
+
+/// The content-level predicate behind [`is_empty_reply`].
+fn is_empty_content(content: &[pa_agent::types::AssistantContent]) -> bool {
+    !content.iter().any(|part| match part {
+        pa_agent::types::AssistantContent::Text(text) => !text.text.trim().is_empty(),
+        pa_agent::types::AssistantContent::ToolCall(_) => true,
+        _ => false,
+    })
+}
+
+/// The visible warning emitted when the retried reply is still empty. It
+/// reuses the model-prompt-error row type: the client renders it as a
+/// warning status line instead of ending the turn with no feedback.
+fn empty_reply_warning() -> serde_json::Value {
+    let message = pa_types::session::CustomMessage {
+        custom_type: pa_core::prompts::model_prompts::MODEL_PROMPT_ERROR_CUSTOM_TYPE.to_string(),
+        content: pa_types::ai::UserContent::Text(
+            "The model returned an empty reply (no text and no tool calls) after one automatic retry. Nothing was lost - send a message to continue."
+                .to_string(),
+        ),
+        display: true,
+        details: None,
+        timestamp: crate::util::now_ms(),
+        rest: serde_json::Map::default(),
+    };
+    crate::session_commands::custom_message_value(&message)
+}
+
+#[cfg(test)]
+mod tests {
+    use pa_agent::types::AssistantContent;
+
+    fn content(value: serde_json::Value) -> AssistantContent {
+        serde_json::from_value(value).expect("assistant content")
+    }
+
+    #[test]
+    fn text_and_tool_calls_are_not_empty() {
+        assert!(!super::is_empty_content(&[content(
+            serde_json::json!({"type": "text", "text": "hello"})
+        )]));
+        assert!(!super::is_empty_content(&[content(serde_json::json!({
+            "type": "toolCall",
+            "id": "call-1",
+            "name": "bash",
+            "arguments": {}
+        }))]));
+    }
+
+    #[test]
+    fn blank_text_and_thinking_only_are_empty() {
+        assert!(super::is_empty_content(&[]));
+        assert!(super::is_empty_content(&[content(
+            serde_json::json!({"type": "text", "text": "   \n"})
+        )]));
+        assert!(super::is_empty_content(&[content(
+            serde_json::json!({"type": "thinking", "thinking": "a long internal monologue"})
+        )]));
+        assert!(super::is_empty_content(&[
+            content(serde_json::json!({"type": "thinking", "thinking": "monologue"})),
+            content(serde_json::json!({"type": "text", "text": ""})),
+        ]));
     }
 }
