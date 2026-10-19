@@ -5,7 +5,7 @@
 `git log main..custom`）。
 
 - 基线：`v0.10.1-beta.35`（上游 tag-only 提交 `eb11e0c7a`，即 `main` 当前头）
-- 补丁数：**14**
+- 补丁数：**17**
 - 维护流程见 [MAINTAINING.md](MAINTAINING.md)
 
 | # | 提交 | 类型 | 摘要 |
@@ -24,6 +24,9 @@
 | 12 | `513830af0` | feat | 新增 clean-kernel-state 命令 |
 | 13 | `d7410216f` | fix | 空回复自动重试 + 流空闲超时 |
 | 14 | `05124ced4` | fix | 停滞的子代理重新派活 + 重试提示按回合隔离 |
+| 15 | `7c74e8db6` | fix | 停滞通知只发给父代理一次 |
+| 16 | `695cc7895` | fix | 收养无 bootstrap 记录的 kernel venv |
+| 17 | `6b6fa2212` | fix | 空回复重试前固定等 3 秒 |
 
 ---
 
@@ -221,3 +224,57 @@ prime-agent clean-kernel-state [--days <n>] [--dry-run] [--json]
 `cargo test -p pa-core retry_nudge --lib`（3 项）。
 
 **限制**：同补丁 13，`-p` 模式不经过 daemon 路径，此项仅对 TUI 生效。
+
+## 15. 停滞通知只发给父代理一次（`7c74e8db6`）
+
+**问题**：补丁 14 的通知无条件发送。子代理每开始一个新 turn 又空回复时都会再发
+一次，父代理收到通知后回消息、子代理再跑一轮又空又发——形成正反馈，父代理被
+同一句话刷屏，即使该子代理已被从 roster 删除。
+
+**行为**：引擎新增 `stalled_run_announced: AtomicBool`。通知只在未置位时发送并
+置位；投递失败则复位（一次网络抖动不能永久静默）；出现可见回复也复位（说明停滞
+已解除，下次停滞应重新告知）。
+
+**文件**：`crates/pa-daemon/src/agent_engine.rs`、
+`crates/pa-daemon/src/agent_engine/{lifecycle,turn/model}.rs`
+（测试：`crates/pa-daemon/src/agent_engine/tests/empty_reply.rs`）
+
+**验证**：`cargo test -p pa-daemon empty_reply --lib`（5 项，新增
+`a_repeat_stall_does_not_flood_the_parent`：连续两轮空回复只产生 1 条通知，
+但每轮各 1 条警告行）。
+
+## 16. 收养无 bootstrap 记录的 kernel venv（`695cc7895`）
+
+**问题**：`.bootstrap-version` 是 bootstrap 最后一步写的。若 bootstrap 在装完
+运行时、写记录前被杀（部署重启、多 worker 同时启动都常见），会留下一个完整可用
+但没有记录的 venv。此后每次启动都判定 venv 过期并 `remove_dir_all`；只要还有别的
+worker 的 kernel python 在该目录里运行，删除就会以"拒绝访问"失败，并永久重复——
+表现为所有 `python_repl` 调用在几毫秒内失败。
+
+**行为**：
+- 记录缺失时先探测现有 venv：若其 python 能 import prime-agent runtime 与
+  `dill`，则视为可用，补写缺失的记录并继续使用，不再删除。
+- 探测不通过时才重建；且重建前删除失败不再中止启动，改为告警并就地重建。
+
+**文件**：`crates/pa-core/src/kernel/bootstrap/mod.rs`、
+`crates/pa-core/src/kernel/bootstrap/venv.rs`、
+`crates/pa-core/src/kernel/bootstrap/venv/probe.rs`
+（测试：`crates/pa-core/src/kernel/bootstrap/venv/tests.rs`、
+`crates/pa-core/src/kernel/bootstrap/mod.rs`）
+
+**验证**：`cargo test -p pa-core bootstrap:: --lib`（31 项，新增收养成功、
+运行时损坏不收养、已有记录不动、无记录但可用的 venv 绝不被删除）。
+
+## 17. 空回复重试前固定等 3 秒（`6b6fa2212`）
+
+**问题**：补丁 13 的重试是立即重发。空回复多由 provider 瞬时抖动引起，立刻重试
+往往撞上同一个抖动，等于白耗掉唯一一次重试。
+
+**行为**：重试前固定等待 3 秒（`EMPTY_REPLY_RETRY_DELAY_MS`）。用固定值而非指数
+退避，因为只有一次重试。等待可取消：暂停期间收到 abort 会立即返回中止消息，不会
+硬撑着再发请求。
+
+**文件**：`crates/pa-daemon/src/agent_engine/turn/model.rs`
+
+**验证**：`cargo test -p pa-daemon empty_reply --lib`（5 项；整组耗时从 0.11s
+增至约 6.2s，证明等待真实生效）。
