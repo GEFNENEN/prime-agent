@@ -34,6 +34,13 @@ pub(crate) fn has_prime_agent_runtime(python: &str) -> bool {
     run_quiet(python, &["-c", RUNTIME_READY_CHECK])
 }
 
+/// The full readiness signal a record-less venv must show before it may be
+/// adopted: the runtime surface and `dill` both import. A partial install
+/// fails this and still gets rebuilt.
+pub(crate) fn has_working_runtime(python: &str) -> bool {
+    has_prime_agent_runtime(python) && python_imports(python, "dill")
+}
+
 pub(crate) fn missing_rlm_extra_import_labels(python: &str) -> Vec<&'static str> {
     DEFAULT_RLM_EXTRA_PACKAGES
         .iter()

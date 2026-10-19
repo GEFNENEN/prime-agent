@@ -1213,3 +1213,62 @@ async fn unwritable_stale_venv_names_the_venv_and_both_env_overrides() {
         "no raw lock-candidate path: {message}"
     );
 }
+/// A venv that lost its record but still runs is adopted, not rebuilt: the
+/// record is written last, so a killed bootstrap leaves exactly this state and
+/// rebuilding it would mean deleting a directory other workers run python out
+/// of (`os error 5` on Windows).
+#[test]
+fn a_record_less_venv_with_a_working_runtime_is_adopted() {
+    let _memo_state = MEMO_STATE_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let dir = tempfile::tempdir().unwrap();
+    let venv = dir.path().join("kernel-venv");
+    std::fs::create_dir_all(&venv).unwrap();
+    assert!(read_bootstrap_version(&venv).is_none(), "no record yet");
+
+    adopt_if_runtime_works(&venv, "sha256:runtime", true).expect("a working venv is adopted");
+    let version = read_bootstrap_version(&venv).expect("the record is written");
+    assert_eq!(version.runtime.as_deref(), Some("sha256:runtime"));
+    assert!(
+        bootstrap_version_current(Some(&version), "sha256:runtime", &[]),
+        "the adopted record satisfies the ready check"
+    );
+}
+
+/// The probe decides: a venv whose runtime does not import is not adopted and
+/// must still go through the rebuild path.
+#[test]
+fn a_broken_runtime_is_not_adopted() {
+    let dir = tempfile::tempdir().unwrap();
+    let venv = dir.path().join("kernel-venv");
+    std::fs::create_dir_all(&venv).unwrap();
+    let error = adopt_if_runtime_works(&venv, "sha256:runtime", false)
+        .expect_err("a broken runtime must not be adopted");
+    assert!(error.to_string().contains("no working prime-agent-runtime"));
+    assert!(
+        read_bootstrap_version(&venv).is_none(),
+        "no record is written for a venv that cannot run"
+    );
+}
+
+/// Adoption never overwrites an existing record: a venv that already reports a
+/// different identity is a rebuild decision, not an adoption one.
+#[test]
+fn an_existing_record_is_left_alone() {
+    let _memo_state = MEMO_STATE_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let dir = tempfile::tempdir().unwrap();
+    let venv = dir.path().join("kernel-venv");
+    std::fs::create_dir_all(&venv).unwrap();
+    write_bootstrap_version(&venv, "sha256:recorded", &[]).unwrap();
+
+    adopt_if_runtime_works(&venv, "sha256:new-runtime", true).expect("adoption is a no-op");
+    let version = read_bootstrap_version(&venv).expect("the original record survives");
+    assert_eq!(
+        version.runtime.as_deref(),
+        Some("sha256:recorded"),
+        "the existing identity is not overwritten"
+    );
+}

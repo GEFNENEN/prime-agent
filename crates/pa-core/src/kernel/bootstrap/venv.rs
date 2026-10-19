@@ -37,7 +37,7 @@ use probe::{clear_in_process_probe_memo_for_tests, installed_package_dir};
 pub(crate) use probe::{
     has_prime_agent_runtime, missing_python_skill_import_labels, missing_rlm_extra_import_labels,
 };
-use probe::{has_prime_agent_runtime_memoized, installed_runtime_identity};
+use probe::{has_prime_agent_runtime_memoized, has_working_runtime, installed_runtime_identity};
 use runtime_source::collect_python_files;
 pub(super) use runtime_source::{hash_runtime_source, require_runtime_source_dir};
 pub(super) use runtime_source::{package_dir, packaged_runtime_dir};
@@ -284,6 +284,62 @@ pub(crate) fn kernel_ready(
             &installed_runtime_identity(Path::new(python), venv),
             venv,
         )
+}
+
+#[cfg(test)]
+pub(crate) fn adopt_if_runtime_works_for_tests(
+    venv: &Path,
+    runtime_identity: &str,
+    runtime_works: bool,
+) -> anyhow::Result<()> {
+    adopt_if_runtime_works(venv, runtime_identity, runtime_works)
+}
+
+#[cfg(test)]
+pub(crate) fn read_bootstrap_version_for_tests(venv: &Path) -> Option<BootstrapVersion> {
+    read_bootstrap_version(venv)
+}
+
+/// Adopt a venv that lost its `.bootstrap-version` record but still holds a
+/// working runtime: re-record the identity instead of deleting a live
+/// environment.
+///
+/// The record is written last, so an interrupted or killed bootstrap leaves a
+/// complete-but-unrecorded venv. Rebuilding it means `remove_dir_all`, which
+/// fails with `os error 5` whenever another worker's kernel python is running
+/// out of the same shared venv - and with three workers starting together that
+/// is the common case, not the exception. Adopting is both cheaper and safe:
+/// the probe above proves the interpreter, `rlm`, and `dill` are all present.
+pub(crate) fn adopt_unrecorded_venv(
+    python: &str,
+    venv: &Path,
+    runtime_identity: &str,
+) -> anyhow::Result<()> {
+    if read_bootstrap_version(venv).is_some() {
+        return Ok(());
+    }
+    adopt_if_runtime_works(venv, runtime_identity, has_working_runtime(python))
+}
+
+/// The decision half of [`adopt_unrecorded_venv`]: record the identity when the
+/// venv holds no record but the caller's probe says the runtime works.
+fn adopt_if_runtime_works(
+    venv: &Path,
+    runtime_identity: &str,
+    runtime_works: bool,
+) -> anyhow::Result<()> {
+    if read_bootstrap_version(venv).is_some() {
+        return Ok(());
+    }
+    if !runtime_works {
+        return Err(anyhow!(
+            "{} has no working prime-agent-runtime",
+            venv.display()
+        ));
+    }
+    write_bootstrap_version(venv, runtime_identity, &[])?;
+    probe::invalidate_runtime_probe_cache();
+    Ok(())
 }
 
 #[cfg(test)]
