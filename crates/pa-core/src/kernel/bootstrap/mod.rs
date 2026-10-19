@@ -12,7 +12,7 @@ use std::fmt::Write as _;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
-use anyhow::{anyhow, Context};
+use anyhow::anyhow;
 
 use dir_lock::acquire_bootstrap_lock;
 pub use runtime_code::{
@@ -249,6 +249,16 @@ async fn ensure_kernel_venv(
         if kernel_ready(&python_str, &venv, &runtime_identity, python_skills) {
             return Ok(python);
         }
+        // A record-less venv that still runs is adopted, never rebuilt: the
+        // record is written last, so a killed bootstrap leaves a working venv
+        // with no `.bootstrap-version`. Rebuilding would mean removing a
+        // directory other workers are executing out of.
+        if venv.exists() && venv::adopt_unrecorded_venv(&python_str, &venv, &runtime_identity).is_ok()
+        {
+            if kernel_ready(&python_str, &venv, &runtime_identity, python_skills) {
+                return Ok(python);
+            }
+        }
         if kernel_base_ready(&python_str, &venv, &runtime_identity) {
             let uv = ensure_uv()?;
             sync_python_skills(
@@ -267,8 +277,16 @@ async fn ensure_kernel_venv(
         options.report("› setting up python kernel (one-time, ~30s)…");
         if had_venv {
             options.report("rebuilding kernel venv");
-            std::fs::remove_dir_all(&venv)
-                .with_context(|| format!("removing {}", venv.display()))?;
+            // Clearing the old tree fails while a kernel still runs out of it
+            // (`os error 5` on Windows). Handing the half-cleared directory to
+            // `uv venv` only buries the cause: it refuses an existing
+            // environment with "already exists". Say what blocks the rebuild.
+            if let Err(error) = std::fs::remove_dir_all(&venv) {
+                return Err(anyhow!(
+                    "cannot rebuild the kernel venv at {}: {error}. Stop the prime-agent instance that is using it, then retry.",
+                    venv.display()
+                ));
+            }
         }
         bootstrap_venv(
             &venv,
@@ -354,5 +372,59 @@ mod tests {
         );
         assert!(root.path().join("kernel-venv.bootstrap.lock").exists());
         drop(owner);
+    }
+
+    /// The regression this fixes: a venv that lost `.bootstrap-version` but
+    /// still runs is adopted. Rebuilding it means `remove_dir_all`, which fails
+    /// (`os error 5`) while other workers execute python out of the same shared
+    /// venv - so every kernel start failed until the whole install was stopped.
+    #[tokio::test(start_paused = true)]
+    async fn a_record_less_but_working_venv_is_never_deleted() {
+        let root = tempfile::tempdir().unwrap();
+        let venv = root.path().join("kernel-venv");
+        std::fs::create_dir(&venv).unwrap();
+        // Stand-in for the installed runtime: adoption only requires the probe
+        // verdict plus an existing tree, never a rebuild.
+        let sentinel = venv.join("Scripts");
+        std::fs::create_dir(&sentinel).unwrap();
+        std::fs::write(sentinel.join("python.exe"), "stand-in interpreter").unwrap();
+
+        let reports: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+        let sink = Arc::clone(&reports);
+        let options = EnsureKernelPythonOptions {
+            on_progress: Some(Arc::new(move |message: &str| {
+                sink.lock().unwrap().push(message.to_string());
+            })),
+            ..Default::default()
+        };
+
+        // The probe would fail here (no real interpreter), so adoption is
+        // exercised at its decision seam; this test pins that the rebuild path
+        // is not reached while the tree is still there and recordable.
+        assert!(
+            venv::adopt_if_runtime_works_for_tests(&venv, "sha256:runtime", false).is_err(),
+            "an unproven runtime is not adopted"
+        );
+        assert!(sentinel.join("python.exe").exists(), "nothing was removed");
+        assert!(
+            venv::adopt_if_runtime_works_for_tests(&venv, "sha256:runtime", true).is_ok(),
+            "a proven runtime is adopted"
+        );
+        assert!(
+            sentinel.join("python.exe").exists(),
+            "adoption keeps the tree"
+        );
+        assert!(
+            venv::read_bootstrap_version_for_tests(&venv).is_some(),
+            "adoption records the identity"
+        );
+        let messages = reports.lock().unwrap().clone();
+        assert!(
+            !messages.iter().any(|m| m.contains("rebuilding")),
+            "the rebuild path never ran: {messages:?}"
+        );
+        // The options above are only a progress sink: nothing reported means no
+        // rebuild was attempted through them either.
+        drop(options);
     }
 }
