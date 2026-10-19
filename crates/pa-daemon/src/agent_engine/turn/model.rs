@@ -424,20 +424,40 @@ impl AgentSessionEngine {
                                 emit(EngineEvent::CustomMessage(empty_reply_warning(
                                     stalled_run_subagent,
                                 )));
-                                if stalled_run_subagent {
+                                if stalled_run_subagent
+                                    && !self.stalled_run_announced.swap(
+                                        true,
+                                        std::sync::atomic::Ordering::SeqCst,
+                                    )
+                                {
                                     let notice = self
                                         .stalled_run_notice
                                         .lock()
                                         .unwrap_or_else(std::sync::PoisonError::into_inner)
                                         .clone();
                                     if let Some(notice) = notice {
-                                        notice(EMPTY_REPLY_STALLED_PARENT_NOTICE.to_string())
-                                            .await
-                                            .ok();
+                                        // A failed delivery must not silence the
+                                        // child for good: reopen the gate so the
+                                        // next stall can try again.
+                                        if notice(
+                                            EMPTY_REPLY_STALLED_PARENT_NOTICE.to_string(),
+                                        )
+                                        .await
+                                        .is_err()
+                                        {
+                                            self.stalled_run_announced.store(
+                                                false,
+                                                std::sync::atomic::Ordering::SeqCst,
+                                            );
+                                        }
                                     }
                                 }
                                 return Ok(assistant);
                             }
+                            // A visible reply means the stall resolved: let a
+                            // later stall announce itself again.
+                            self.stalled_run_announced
+                                .store(false, std::sync::atomic::Ordering::SeqCst);
                             if !self
                                 .threshold_yielded
                                 .swap(false, std::sync::atomic::Ordering::SeqCst)

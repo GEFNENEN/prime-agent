@@ -186,6 +186,7 @@ impl AgentSessionEngine {
             held_autonomous_continuation: std::sync::Mutex::new(None),
             autonomous_admission: std::sync::Mutex::new(None),
             stalled_run_notice: std::sync::Mutex::new(None),
+            stalled_run_announced: std::sync::atomic::AtomicBool::new(false),
             autonomous_awaits_rlm_work: std::sync::atomic::AtomicBool::new(false),
             session_closed: std::sync::atomic::AtomicBool::new(false),
             self_weak: std::sync::Mutex::new(None),
