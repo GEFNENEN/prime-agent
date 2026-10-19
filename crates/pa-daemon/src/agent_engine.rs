@@ -269,6 +269,11 @@ pub struct AgentSessionEngine {
     /// going idle silently. `None` for a top-level session or a standalone
     /// worker.
     pub(crate) stalled_run_notice: std::sync::Mutex<Option<StalledRunNotice>>,
+    /// Whether this engine already announced a stall to its parent. A child
+    /// that keeps coming back empty would otherwise re-announce on every
+    /// parent-driven turn and flood the parent with identical notices; the
+    /// flag clears as soon as the child produces a visible reply again.
+    pub(crate) stalled_run_announced: std::sync::atomic::AtomicBool,
     /// Whether the in-run hook deferred the continuation behind unsettled
     /// RLM descendant work: the settle hook delivers it.
     pub(crate) autonomous_awaits_rlm_work: std::sync::atomic::AtomicBool,
