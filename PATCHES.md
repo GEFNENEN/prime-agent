@@ -5,7 +5,7 @@
 `git log main..custom`）。
 
 - 基线：`v0.10.1-beta.35`（上游 tag-only 提交 `eb11e0c7a`，即 `main` 当前头）
-- 补丁数：**13**
+- 补丁数：**14**
 - 维护流程见 [MAINTAINING.md](MAINTAINING.md)
 
 | # | 提交 | 类型 | 摘要 |
@@ -23,6 +23,7 @@
 | 11 | `a9807e007` | fix | 所有多行粘贴折叠为标记 |
 | 12 | `513830af0` | feat | 新增 clean-kernel-state 命令 |
 | 13 | `d7410216f` | fix | 空回复自动重试 + 流空闲超时 |
+| 14 | `05124ced4` | fix | 停滞的子代理重新派活 + 重试提示按回合隔离 |
 
 ---
 
@@ -189,3 +190,34 @@ prime-agent clean-kernel-state [--days <n>] [--dry-run] [--json]
 
 **限制**：`-p` 打印模式不经过该 daemon 路径，空回复重试仅对 TUI 生效；
 流空闲超时两条路径都生效。
+
+## 14. 停滞子代理重新派活 + 重试提示按回合隔离（`05124ced4`）
+
+**问题 A**：补丁 13 的重试仍失败时，顶层会话会显示警告行，但子代理只会变
+为 idle。子代理仅在 **settle**（worker 队列清空）时由父代理收到
+`CompletedWithoutReply`；常驻子代理空回复后不触发 settle，父代理永远等不到
+结果，用户看到子代理"默默停住"。
+
+**问题 B**：重试提示存在 `Option<String>` 槽里，只由下一次请求的 transform
+取走。若提示入槽后、重试请求发出前发生 abort 或 worker 关闭，槽中残留的
+提示会混进之后某次无关请求。
+
+**行为**：
+- A：检测到空回复且重试已用尽时，除发出警告行外，若当前引擎的
+  `rlm_depth > 0`（子代理），通过 `AgentMessageController` 找到父代理
+  （roster + durable 父子边）并发一条 agent message 说明"本轮空停、上下文
+  未丢、重新派活即可继续"。警告文案按顶层/子代理区分。
+- B：每次 attempt 开始时清空提示槽（`clear_retry_nudge`），被放弃的重试
+  不会把提示泄漏给后续回合。
+
+**文件**：`crates/pa-daemon/src/agent_engine/turn/model.rs`、
+`crates/pa-daemon/src/agent_engine/{config,lifecycle}.rs`、
+`crates/pa-daemon/src/agent_engine.rs`、
+`crates/pa-core/src/session_engine/wiring.rs`
+（测试：`crates/pa-daemon/src/agent_engine/tests/empty_reply.rs`）
+
+**验证**：`cargo test -p pa-daemon empty_reply --lib`（4 项：重试携带提示、
+连续空回复告警、子代理通知父代理、残留提示不泄漏）；
+`cargo test -p pa-core retry_nudge --lib`（3 项）。
+
+**限制**：同补丁 13，`-p` 模式不经过 daemon 路径，此项仅对 TUI 生效。
