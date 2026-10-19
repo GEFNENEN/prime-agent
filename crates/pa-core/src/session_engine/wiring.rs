@@ -143,6 +143,16 @@ impl AgentSession {
             .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(text.into());
     }
 
+    /// Drop any nudge a retry queued but never issued: the slot belongs to
+    /// the turn that queued it, so a queued-then-aborted retry cannot leave a
+    /// stray nudge behind for an unrelated later request.
+    pub fn clear_retry_nudge(&self) {
+        *self
+            .retry_nudge
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = None;
+    }
+
     /// Install the configured agent-end write-back hook (`stopHook`
     /// settings): subscribes the loop listener that renders each finished
     /// run and runs the hook command. The listener renders and spawns the

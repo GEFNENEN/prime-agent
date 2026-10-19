@@ -57,6 +57,19 @@ pub struct SupervisorLinkConfig {
 /// continuation's text, queued into the follow-up lane.
 pub(crate) type AutonomousAdmission = std::sync::Arc<dyn Fn(String) + Send + Sync>;
 
+/// The stalled-run notice a subagent sends its parent when even the automatic
+/// empty-reply retries produce nothing: the parent can re-task the child
+/// instead of waiting on a reply that will never come. `None` outside a
+/// daemon worker / for a top-level session.
+pub(crate) type StalledRunNotice = std::sync::Arc<
+    dyn Fn(
+            String,
+        )
+            -> std::pin::Pin<Box<dyn std::future::Future<Output = anyhow::Result<()>> + Send>>
+        + Send
+        + Sync,
+>;
+
 /// The goal driver and session-manager handles mirrored from the core
 /// session (see `AgentSessionEngine::goal_runtime`).
 #[derive(Clone)]

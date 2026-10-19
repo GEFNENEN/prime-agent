@@ -12,6 +12,9 @@ use super::{
     ProviderTarget, QuotaParkState, SessionCommandExecution, SessionCommandParams,
     SessionEngineConfig, SupervisorChildSessions, Value,
 };
+use pa_core::session_engine::agent_messaging::{
+    AgentFamilyRelationship, AgentMessageController, AgentMessageSendInput,
+};
 
 /// The instruction the floor appends to a bare skill invocation: ask what
 /// the user wants first, never an imperative to execute.
@@ -182,6 +185,7 @@ impl AgentSessionEngine {
             autonomous_driver_default: std::sync::atomic::AtomicBool::new(true),
             held_autonomous_continuation: std::sync::Mutex::new(None),
             autonomous_admission: std::sync::Mutex::new(None),
+            stalled_run_notice: std::sync::Mutex::new(None),
             autonomous_awaits_rlm_work: std::sync::atomic::AtomicBool::new(false),
             session_closed: std::sync::atomic::AtomicBool::new(false),
             self_weak: std::sync::Mutex::new(None),
@@ -948,9 +952,40 @@ impl AgentSessionEngine {
             self.children.clone(),
         ));
         let mut handlers = HostRequestHandlers::default();
-        register_agent_message_host_handlers(sender, &mut handlers);
+        register_agent_message_host_handlers(Arc::clone(&sender), &mut handlers);
         register_agent_observe_host_handlers(observer, &mut handlers);
         self.register_kernel_notice_host_handlers(&mut handlers);
+
+        // The stalled-run fallback: a subagent that exhausts its empty-reply
+        // retries tells the parent, so the run does not just go idle with
+        // nobody watching. Injected here because the supervisor-backed
+        // controller is the only address path to the parent.
+        if self.rlm_depth.load(std::sync::atomic::Ordering::Relaxed) > 0 {
+            let notice: crate::agent_engine::StalledRunNotice = Arc::new(move |text: String| {
+                let sender = Arc::clone(&sender);
+                Box::pin(async move {
+                    let family = sender.family().await?;
+                    let Some(parent) = family
+                        .iter()
+                        .find(|member| member.relationship == AgentFamilyRelationship::Parent)
+                    else {
+                        anyhow::bail!("no parent agent to notify");
+                    };
+                    sender
+                        .send_agent_message(AgentMessageSendInput {
+                            target: parent.id.clone(),
+                            message: text,
+                            receiver_role: Some(AgentFamilyRelationship::Parent),
+                        })
+                        .await?;
+                    Ok(())
+                })
+            });
+            *self
+                .stalled_run_notice
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(notice);
+        }
         Some(handlers)
     }
 

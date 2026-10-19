@@ -109,6 +109,10 @@ impl AgentSessionEngine {
         // owns one turn. The single `emit` reference is handed through
         // a RefCell slot to whichever closure is currently running.
         let emit_cell = std::cell::RefCell::new(emit);
+        // A subagent has no operator to nudge a stalled provider reply, so the
+        // stall falls back to a notice to its parent (see
+        // `stalled_run_notice`); a top-level session just tells the user.
+        let stalled_run_subagent = self.rlm_depth.load(std::sync::atomic::Ordering::Relaxed) > 0;
         // The overflow compact-and-retry re-issues the loop without a new
         // user message, so its turn starts as a continuation (TS
         // `agent.continue()`); ordinary turns start fresh.
@@ -360,6 +364,12 @@ impl AgentSessionEngine {
                     let model = model.clone();
                     let pending_model_changes = pending_model_changes.clone();
                     async move {
+                        // The nudge slot is attempt-scoped: a retry that was
+                        // queued but never issued (abort, worker shutdown)
+                        // must not leak its nudge into this turn's request.
+                        if let Some(core) = self.session.lock().await.clone() {
+                            core.session.clear_retry_nudge();
+                        }
                         // A retry re-issues the failed turn: the failed
                         // assistant message leaves the loop context first
                         // (TS `messages.slice(0, -1)`), then `continue`.
@@ -367,11 +377,12 @@ impl AgentSessionEngine {
                             drop_trailing_assistant(&agent).await;
                         }
                         let mut admit_prompt = first;
-                        // One automatic retry per attempt for a finished
-                        // turn the user cannot act on (no text, no tool
-                        // call). Without it the run ends silently: the
-                        // providers stop cleanly on thinking-only replies.
-                        let mut empty_reply_retried = false;
+                        // Automatic retries for a finished turn the user
+                        // cannot act on (no text, no tool call). Without
+                        // them the run ends silently: the providers stop
+                        // cleanly on thinking-only replies. A subagent gets
+                        // one extra attempt (see `empty_reply_retries`).
+                        let mut empty_reply_retries_left = 1;
                         loop {
                             let assistant = match self
                                 .run_turn_once(
@@ -393,8 +404,8 @@ impl AgentSessionEngine {
                                 Err(error) => return Err(error),
                             };
                             if is_empty_reply(&assistant) {
-                                if !empty_reply_retried {
-                                    empty_reply_retried = true;
+                                if empty_reply_retries_left > 0 {
+                                    empty_reply_retries_left -= 1;
                                     // Queue the request-only nudge, drop
                                     // the empty assistant, and re-issue
                                     // the same turn without re-admitting
@@ -407,8 +418,24 @@ impl AgentSessionEngine {
                                     continue;
                                 }
                                 // Still empty: never end the turn
-                                // silently — surface a visible warning.
-                                emit(EngineEvent::CustomMessage(empty_reply_warning()));
+                                // silently �� surface a visible warning, and
+                                // for a subagent tell the parent so the run is
+                                // re-tasked instead of idling unseen.
+                                emit(EngineEvent::CustomMessage(empty_reply_warning(
+                                    stalled_run_subagent,
+                                )));
+                                if stalled_run_subagent {
+                                    let notice = self
+                                        .stalled_run_notice
+                                        .lock()
+                                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                                        .clone();
+                                    if let Some(notice) = notice {
+                                        notice(EMPTY_REPLY_STALLED_PARENT_NOTICE.to_string())
+                                            .await
+                                            .ok();
+                                    }
+                                }
                                 return Ok(assistant);
                             }
                             if !self
@@ -655,6 +682,11 @@ impl AgentSessionEngine {
 /// never enters the persisted history.
 const EMPTY_REPLY_RETRY_NUDGE: &str = "Your previous reply was empty: no user-visible text and no tool calls. Continue the task now - answer the user or call the tools you need. Never reply with an empty message.";
 
+/// The message a stalled subagent sends its parent. It is warm and actionable:
+/// the parent re-tasks the child (or takes the work over) instead of waiting
+/// for a reply that will never arrive.
+const EMPTY_REPLY_STALLED_PARENT_NOTICE: &str = "I stopped without producing a reply: the model returned an empty turn (no text, no tool calls) twice in a row, so this run has ended. Nothing in my context was lost - re-task me with the next step and I will continue.";
+
 /// True when a finished assistant message carries nothing the user can act
 /// on: no non-blank text and no tool call. Thinking-only replies count as
 /// empty (providers stop cleanly on them and the run would end silently).
@@ -674,13 +706,15 @@ fn is_empty_content(content: &[pa_agent::types::AssistantContent]) -> bool {
 /// The visible warning emitted when the retried reply is still empty. It
 /// reuses the model-prompt-error row type: the client renders it as a
 /// warning status line instead of ending the turn with no feedback.
-fn empty_reply_warning() -> serde_json::Value {
+fn empty_reply_warning(stalled_subagent: bool) -> serde_json::Value {
+    let content = if stalled_subagent {
+        "The model returned an empty reply (no text and no tool calls) after an automatic retry. This subagent run stopped and its parent was notified so it can re-task the work."
+    } else {
+        "The model returned an empty reply (no text and no tool calls) after an automatic retry. Nothing was lost - send a message to continue."
+    };
     let message = pa_types::session::CustomMessage {
         custom_type: pa_core::prompts::model_prompts::MODEL_PROMPT_ERROR_CUSTOM_TYPE.to_string(),
-        content: pa_types::ai::UserContent::Text(
-            "The model returned an empty reply (no text and no tool calls) after one automatic retry. Nothing was lost - send a message to continue."
-                .to_string(),
-        ),
+        content: pa_types::ai::UserContent::Text(content.to_string()),
         display: true,
         details: None,
         timestamp: crate::util::now_ms(),
