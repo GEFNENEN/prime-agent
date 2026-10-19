@@ -406,6 +406,26 @@ impl AgentSessionEngine {
                             if is_empty_reply(&assistant) {
                                 if empty_reply_retries_left > 0 {
                                     empty_reply_retries_left -= 1;
+                                    // An empty reply is usually the provider
+                                    // wobbling, not the request: re-issuing
+                                    // instantly lands on the same wobble and
+                                    // burns the single retry. Wait a fixed
+                                    // pause first, abort-aware so a cancelled
+                                    // run does not sit here.
+                                    let deadline = tokio::time::Instant::now()
+                                        + std::time::Duration::from_millis(
+                                            EMPTY_REPLY_RETRY_DELAY_MS,
+                                        );
+                                    loop {
+                                        if aborted() {
+                                            return Ok(aborted_message(&model));
+                                        }
+                                        if tokio::time::Instant::now() >= deadline {
+                                            break;
+                                        }
+                                        tokio::time::sleep(std::time::Duration::from_millis(50))
+                                            .await;
+                                    }
                                     // Queue the request-only nudge, drop
                                     // the empty assistant, and re-issue
                                     // the same turn without re-admitting
@@ -701,6 +721,11 @@ impl AgentSessionEngine {
 /// the engine's transform drains it after assembling the request, so it
 /// never enters the persisted history.
 const EMPTY_REPLY_RETRY_NUDGE: &str = "Your previous reply was empty: no user-visible text and no tool calls. Continue the task now - answer the user or call the tools you need. Never reply with an empty message.";
+
+/// The pause before re-issuing an empty turn: an empty reply is usually a
+/// provider wobble, so an immediate retry re-hits it. Fixed rather than
+/// exponential because there is exactly one retry.
+const EMPTY_REPLY_RETRY_DELAY_MS: u64 = 3_000;
 
 /// The message a stalled subagent sends its parent. It is warm and actionable:
 /// the parent re-tasks the child (or takes the work over) instead of waiting
