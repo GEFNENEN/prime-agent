@@ -68,6 +68,7 @@ pub(crate) use artifacts::{artifact_reference, now_millis};
 pub use config::AgentEngineConfig;
 pub(crate) use config::AutonomousAdmission;
 pub(crate) use config::CreateSessionResources;
+pub(crate) use config::StalledRunNotice;
 pub use config::SupervisorLinkConfig;
 use config::{GoalRuntimeHandles, ProducerUsageSink, RestoredSessionModel, StartupScope};
 
@@ -263,6 +264,11 @@ pub struct AgentSessionEngine {
     /// compaction, held for the queued `followUp` admission.
     pub(crate) held_autonomous_continuation: std::sync::Mutex<Option<String>>,
     pub(crate) autonomous_admission: std::sync::Mutex<Option<AutonomousAdmission>>,
+    /// The stalled-run fallback: a subagent whose automatic empty-reply
+    /// retries all came back empty announces it to the parent instead of
+    /// going idle silently. `None` for a top-level session or a standalone
+    /// worker.
+    pub(crate) stalled_run_notice: std::sync::Mutex<Option<StalledRunNotice>>,
     /// Whether the in-run hook deferred the continuation behind unsettled
     /// RLM descendant work: the settle hook delivers it.
     pub(crate) autonomous_awaits_rlm_work: std::sync::atomic::AtomicBool,
