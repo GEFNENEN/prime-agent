@@ -325,3 +325,67 @@ fn a_stalled_subagent_notifies_its_parent() {
         "the child row says the parent was told: {content}"
     );
 }
+
+#[test]
+fn a_repeat_stall_does_not_flood_the_parent() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let engine = empty_reply_engine(dir.path(), &listener);
+    <AgentSessionEngine as crate::engine::SessionEngine>::configure_rlm_identity(
+        &engine,
+        crate::engine::RlmSessionIdentity {
+            rlm_depth: 1,
+            rlm_max_depth: None,
+            cwd: None,
+            session_id: None,
+            session_file: None,
+            thinking: None,
+            child_script: None,
+            semantic_spawn: None,
+        },
+    )
+    .unwrap();
+    let notices: std::sync::Arc<std::sync::Mutex<Vec<String>>> =
+        std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let sink_notices = std::sync::Arc::clone(&notices);
+    *engine.stalled_run_notice.lock().unwrap() = Some(std::sync::Arc::new(move |text: String| {
+        let sink_notices = std::sync::Arc::clone(&sink_notices);
+        Box::pin(async move {
+            sink_notices.lock().unwrap().push(text);
+            Ok(())
+        })
+    }));
+    let server = std::thread::spawn(move || {
+        // Two turns, each an attempt plus its automatic retry, all empty.
+        for _ in 0..4 {
+            let (mut stream, _body) = read_request(&listener);
+            respond_sse(&mut stream, None);
+        }
+    });
+    let mut first: Vec<EngineEvent> = Vec::new();
+    admit(&engine, "First turn".to_string(), &mut first);
+    let mut second: Vec<EngineEvent> = Vec::new();
+    admit(&engine, "Second turn".to_string(), &mut second);
+    server.join().unwrap();
+    let sent = notices.lock().unwrap().clone();
+    assert_eq!(
+        sent.len(),
+        1,
+        "a still-stalled child announces once, not once per parent turn: {sent:?}"
+    );
+    let warnings = |events: &[EngineEvent]| {
+        events
+            .iter()
+            .filter(|event| {
+                matches!(event, EngineEvent::CustomMessage(value)
+                    if value["customType"] == "model_prompt_error")
+            })
+            .count()
+    };
+    assert_eq!(warnings(&first), 1, "the first stall still warns the turn");
+    assert_eq!(
+        warnings(&second),
+        1,
+        "the repeat stall keeps warning the turn"
+    );
+}
