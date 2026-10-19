@@ -15,6 +15,12 @@ use crate::utils::stream_failure::{
 static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
 static H2_ALPN_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
 
+/// How long a streaming body may go without a chunk before the read is
+/// treated as a dead connection. The request timeout in `send` covers only
+/// the response headers; providers stream every response (`stream: true`),
+/// so a legitimate gap is an SSE event interval, far below this bound.
+const STREAM_IDLE_TIMEOUT_MS: u64 = 120_000;
+
 /// The HTTP/1.1 client every provider shares, pinned with `http1_only()` so that enabling the
 /// reqwest `http2` feature (bedrock) cannot change the transport of any other provider.
 fn client() -> &'static reqwest::Client {
@@ -61,6 +67,42 @@ pub struct HttpResponse {
 }
 
 impl HttpResponse {
+    /// Read the next raw body chunk, bounded by the stream idle timeout.
+    /// The request timeout in `send` covers only the headers; a half-open
+    /// connection (a dead proxy hop with no RST) would otherwise wait
+    /// here forever and the turn would hang silently.
+    async fn next_raw_chunk(&mut self) -> Result<Option<Vec<u8>>, ProviderError> {
+        if self
+            .signal
+            .as_ref()
+            .is_some_and(tokio_util::sync::CancellationToken::is_cancelled)
+        {
+            return Err(ProviderError::Aborted);
+        }
+        let idle = std::time::Duration::from_millis(STREAM_IDLE_TIMEOUT_MS);
+        let signal = self.signal.clone();
+        let next = self.body.chunk();
+        let chunk = match signal {
+            Some(signal) => {
+                tokio::select! {
+                    () = signal.cancelled() => return Err(ProviderError::Aborted),
+                    result = tokio::time::timeout(idle, next) => result,
+                }
+            }
+            None => tokio::time::timeout(idle, next).await,
+        };
+        match chunk {
+            Ok(Ok(Some(bytes))) => Ok(Some(bytes.to_vec())),
+            Ok(Ok(None)) => Ok(None),
+            Ok(Err(error)) => Err(self.body_error(&error)),
+            Err(_) => Err(ProviderError::Connection(ProviderConnectionError {
+                kind: ConnectionErrorKind::Timeout,
+                profile: self.connection.clone(),
+                cause: format!("stream idle for more than {STREAM_IDLE_TIMEOUT_MS}ms"),
+            })),
+        }
+    }
+
     /// Read the next text chunk from the body (None at end of stream). A UTF-8 sequence split
     /// across body chunks is held until it completes; a sequence still incomplete at end of
     /// stream yields one U+FFFD.
@@ -73,17 +115,7 @@ impl HttpResponse {
             {
                 return Err(ProviderError::Aborted);
             }
-            let signal = self.signal.clone();
-            let chunk = match signal {
-                Some(signal) => {
-                    let next = self.body.chunk();
-                    tokio::select! {
-                        () = signal.cancelled() => return Err(ProviderError::Aborted),
-                        result = next => result,
-                    }
-                }
-                None => self.body.chunk().await,
-            };
+            let chunk = self.next_raw_chunk().await;
             let text = match chunk {
                 Ok(Some(bytes)) => {
                     self.utf8_tail.extend_from_slice(&bytes);
@@ -113,7 +145,7 @@ impl HttpResponse {
                     self.utf8_tail.clear();
                     text
                 }
-                Err(error) => return Err(self.body_error(&error)),
+                Err(error) => return Err(error),
             };
             if !text.is_empty() {
                 return Ok(Some(text));
@@ -123,29 +155,7 @@ impl HttpResponse {
 
     /// Read the next raw byte chunk from the body (None at end of stream).
     pub async fn next_bytes(&mut self) -> Result<Option<Vec<u8>>, ProviderError> {
-        if self
-            .signal
-            .as_ref()
-            .is_some_and(tokio_util::sync::CancellationToken::is_cancelled)
-        {
-            return Err(ProviderError::Aborted);
-        }
-        let signal = self.signal.clone();
-        let chunk = match signal {
-            Some(signal) => {
-                let next = self.body.chunk();
-                tokio::select! {
-                    () = signal.cancelled() => return Err(ProviderError::Aborted),
-                    result = next => result,
-                }
-            }
-            None => self.body.chunk().await,
-        };
-        match chunk {
-            Ok(Some(bytes)) => Ok(Some(bytes.to_vec())),
-            Ok(None) => Ok(None),
-            Err(error) => Err(self.body_error(&error)),
-        }
+        self.next_raw_chunk().await
     }
 
     /// Classify a body-read failure: the AWS bedrock http2 profile surfaces the TS transport's
