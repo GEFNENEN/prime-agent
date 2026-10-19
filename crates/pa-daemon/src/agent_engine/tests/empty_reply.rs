@@ -190,6 +190,36 @@ fn retries_an_empty_finished_reply_once_with_a_nudge() {
 }
 
 #[test]
+fn a_stale_nudge_does_not_leak_into_the_next_turn() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let engine = empty_reply_engine(dir.path(), &listener);
+    // A retry that was queued but never issued (abort, worker shutdown)
+    // leaves the slot armed; the next unrelated turn must not inherit it.
+    let core = engine
+        .runtime
+        .block_on(async { engine.session.lock().await.clone() })
+        .expect("core session");
+    core.session.queue_retry_nudge("stale nudge");
+    let server = std::thread::spawn(move || {
+        let (mut stream, body) = read_request(&listener);
+        respond_sse(&mut stream, Some("pong"));
+        body
+    });
+    let mut events: Vec<EngineEvent> = Vec::new();
+    admit(&engine, "Reply with pong".to_string(), &mut events);
+    let body = server.join().unwrap();
+    assert!(
+        !body.contains("stale nudge"),
+        "a nudge from an aborted retry must not reach a later request: {body}"
+    );
+    assert_eq!(
+        assistant_texts(&events).last().map(String::as_str),
+        Some("pong")
+    );
+}
+
+#[test]
 fn warns_when_the_retry_is_also_empty() {
     let dir = tempfile::TempDir::new().unwrap();
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -220,5 +250,78 @@ fn warns_when_the_retry_is_also_empty() {
     assert!(
         assistant_texts(&events).iter().all(String::is_empty),
         "no visible assistant text was produced"
+    );
+}
+
+#[test]
+fn a_stalled_subagent_notifies_its_parent() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let engine = empty_reply_engine(dir.path(), &listener);
+    // A child session (RLM depth 1) has no operator to nudge it: after the
+    // one automatic retry it must tell the parent instead of idling unseen.
+    <AgentSessionEngine as crate::engine::SessionEngine>::configure_rlm_identity(
+        &engine,
+        crate::engine::RlmSessionIdentity {
+            rlm_depth: 1,
+            rlm_max_depth: None,
+            cwd: None,
+            session_id: None,
+            session_file: None,
+            thinking: None,
+            child_script: None,
+            semantic_spawn: None,
+        },
+    )
+    .unwrap();
+    let notices: std::sync::Arc<std::sync::Mutex<Vec<String>>> =
+        std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let sink_notices = std::sync::Arc::clone(&notices);
+    *engine.stalled_run_notice.lock().unwrap() = Some(std::sync::Arc::new(move |text: String| {
+        let sink_notices = std::sync::Arc::clone(&sink_notices);
+        Box::pin(async move {
+            sink_notices.lock().unwrap().push(text);
+            Ok(())
+        })
+    }));
+    let server = std::thread::spawn(move || {
+        // The original attempt plus exactly one automatic retry.
+        for _ in 0..2 {
+            let (mut stream, _body) = read_request(&listener);
+            respond_sse(&mut stream, None);
+        }
+    });
+    let mut events: Vec<EngineEvent> = Vec::new();
+    admit(
+        &engine,
+        "Reply with the single word: pong".to_string(),
+        &mut events,
+    );
+    server.join().unwrap();
+    let sent = notices.lock().unwrap().clone();
+    assert_eq!(sent.len(), 1, "the parent is told exactly once");
+    assert!(
+        sent[0].contains("re-task me"),
+        "the notice asks the parent to re-task the child: {}",
+        sent[0]
+    );
+    let warnings: Vec<&Value> = events
+        .iter()
+        .filter_map(|event| match event {
+            EngineEvent::CustomMessage(value) if value["customType"] == "model_prompt_error" => {
+                Some(value)
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(warnings.len(), 1, "exactly one visible warning");
+    let content = warnings[0]["content"].as_str().unwrap_or_default();
+    assert!(
+        !content.contains("send a message"),
+        "a subagent must not be told to send a message: {content}"
+    );
+    assert!(
+        content.contains("parent was notified"),
+        "the child row says the parent was told: {content}"
     );
 }
