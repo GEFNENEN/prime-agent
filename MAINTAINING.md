@@ -20,7 +20,7 @@
 ## 2. 分支模型
 
 - `main`：上游镜像。**只沿稳定 tag 快进**，不落任何本地提交。
-- `custom`：我们的补丁分支。提交链 = 基线 + 补丁（当前 13 个，见 PATCHES.md）。
+- `custom`：我们的补丁分支。提交链 = 基线 + 补丁（当前 17 个，见 PATCHES.md）。
 - 基线选择：
   - 有新的稳定 tag（`v0.10.x`）时，优先 rebase 到稳定 tag；
   - 上游长期不发稳定版时，可临时以最新 beta tag 为基线，待稳定版发布后再
@@ -29,6 +29,10 @@
   （`crates/pa-cli/src/config.rs` 的 `packaged_manifest_version`），beta 基线
   构建会显示 beta 版本号。部署时应同步该文件（以及存在时的
   `.prime-agent-install`）。
+- custom 构建的版本号带 build metadata 后缀 `+custom.<N>`（如
+  `0.10.1+custom.18`）：`--version` 能区分 fork 构建，而 semver 比较忽略
+  build metadata，不会让更新器把 fork 判成比基线更旧。部署时
+  `package.json` 与 `.prime-agent-install` 必须写入完整字符串。
 - 上游 beta tag 常带一个 tag-only 提交（只改 `Cargo.toml`/`Cargo.lock`
   版本行，分支不包含），基线直接取该 tag 提交。
 
