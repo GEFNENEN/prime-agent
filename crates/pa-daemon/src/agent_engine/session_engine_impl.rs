@@ -1288,9 +1288,14 @@ impl SessionEngine for AgentSessionEngine {
         &self,
         options: pa_core::session_engine::refine::RefineOptions,
     ) -> anyhow::Result<Value> {
-        // The rollback plans without a model call; the commit waits for
-        // the session to go idle.
-        let model = self.resolve_model()?;
+        // Refine calls the provider directly (the refiner seam, not the
+        // session's switchable stream), so it takes the model the stream would
+        // use: `session_model` carries the target's auth headers, without which
+        // a provider that routes on one rejects the call (opencode-go answers
+        // 400 MissingSessionID, which reached the refiner as an empty reply).
+        // The rollback plans without a model call; the commit waits for the
+        // session to go idle.
+        let model = self.session_model()?;
         self.ensure_core_session(&model)?;
         let (model, api_key) = self.resolve_request_target(model);
         // The lock covers the clone only; the commit below must not ride it.
