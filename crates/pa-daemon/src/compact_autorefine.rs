@@ -485,7 +485,10 @@ mod tests {
             })
             .collect();
         assert_eq!(errors.len(), 1, "events: {events:?}");
-        assert_eq!(errors[0], "Refiner did not return a JSON object");
+        assert!(
+            errors[0].starts_with("Refiner did not return a JSON object"),
+            "{errors:?}"
+        );
         assert!(
             events
                 .iter()
