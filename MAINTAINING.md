@@ -113,6 +113,10 @@ rebase 期间不要用 `git rebase -i` 手工压缩历史；补丁保持独立�
 | CLI 命令 | `cargo test -p pa-cli --lib`（端口类失败可能是环境性，见下） |
 | 全量回归对照 | 见下方「基线对照」 |
 
+跑会启动引擎/内核的测试前，先把 `PRIME_AGENT_CODING_AGENT_DIR` 指到临时目录
+（并配独立的 `PRIME_AGENT_DAEMON_SOCKET`）。用默认配置目录时，测试实例会真实
+触发 `kernel-venv` 的 bootstrap，甚至尝试重建你正在使用的 venv。
+
 **基线对照**（判断失败是否由补丁引入的唯一可靠方法）：
 
 ```powershell
@@ -143,10 +147,19 @@ git worktree remove --force ../pa-base-check
 4. 幂等写入 `stopHook` / `updateGuard` 到 `<agent_dir>/settings.json`
    （各留 `.bak-before-*`）；
 5. 安装新二进制并校验哈希；
-6. 同步安装目录的 `package.json`（及存在时的 `.prime-agent-install`）版本号；
-7. 运行 `--version` 验证。
+6. 同步随二进制分发的 runtime 负载与 skills（见下）；
+7. 同步安装目录的 `package.json`（及存在时的 `.prime-agent-install`）版本号；
+8. 运行 `--version` 验证。
 
-约定：`<stamp>` 取 `<上游版本>-custom<N>`，备份文件名据此区分。
+**必须同步 runtime 负载**：内核 venv 是从 `<install-dir>/prime-agent-runtime`
+（以及 skills 目录）安装的。只换 `prime-agent.exe` 会让新二进制配旧
+`rlm`，内核的运行时探测失败（例如 0.10.1 要求 `bash(persistent, yield_after)`），
+随后重建又被运行中的 kernel python 锁住，表现为 `os error 5`。部署时把仓库的
+`prime-agent-runtime/` 与 `skills/` 一起覆盖到安装位置；停掉实例后删除
+`<agent_dir>/kernel-venv`，让首次 `python_repl` 用新负载重建，最稳妥。
+
+约定：`<stamp>` 取 `<版本>+custom<N>`（build metadata，如 `0.10.1+custom.18`；
+备份文件名据此区分）。
 
 - 安装位置与启动器：由安装器决定；确保 PATH 上的 `prime-agent` 指向
   `<install-dir>`。
