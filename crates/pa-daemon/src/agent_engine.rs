@@ -55,7 +55,7 @@ use turn_types::{
     TurnAdmission, TurnOnce, TurnPrompt, TurnResult,
 };
 
-mod model;
+pub(crate) mod model;
 
 pub(crate) use model::saved_session_context_from_parts;
 
