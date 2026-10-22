@@ -8,6 +8,27 @@ use super::{
     StartupScope,
 };
 
+/// Attach auth-resolved provider-request headers to a model.
+///
+/// The session's stream applies `ProviderTarget::headers` per call, so a turn
+/// needs nothing from this; the direct-call seams (slash commands, compaction,
+/// refinement, image routing) reach the provider themselves and have only the
+/// model to carry them. A provider that routes on a required header rejects the
+/// request without one: opencode-go answers `400 MissingSessionID`, which the
+/// refiner reported as an empty reply.
+pub(crate) fn model_with_headers(
+    mut model: Model,
+    headers: Option<std::collections::BTreeMap<String, String>>,
+) -> Model {
+    if let Some(headers) = headers {
+        model
+            .headers
+            .get_or_insert_with(std::collections::BTreeMap::new)
+            .extend(headers);
+    }
+    model
+}
+
 impl AgentSessionEngine {
     /// The startup chain: the saved settings default, then the featured
     /// default, then the first available model.
@@ -352,7 +373,12 @@ impl AgentSessionEngine {
             .expect("provider target lock")
             .clone()
         {
-            return Ok(target.model);
+            // The target's auth headers ride on the model it returns: the
+            // direct-call seams (slash commands, compaction, refinement,
+            // image routing) reach the provider themselves, so the model is
+            // their only carrier for them. The turn path applies the same
+            // target headers through the stream adapter, which merges.
+            return Ok(model_with_headers(target.model, target.headers));
         }
         self.resolve_model()
     }
