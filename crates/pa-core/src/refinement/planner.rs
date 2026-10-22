@@ -124,7 +124,22 @@ pub fn extract_json_object(text: &str) -> Result<serde_json::Value, String> {
     if is_incomplete_json(trimmed) {
         return Err(TRUNCATED_JSON_ERROR.to_string());
     }
-    Err("Refiner did not return a JSON object".to_string())
+    // 空文本 / 纯散文时给出可判红的现场：长度 + 首尾各 120 字符。
+    // 只看这句话永远分不清「思考吃光输出预算导致 content 为空」与「模型拒答」——
+    // 2026-10-22 的连续失败就是这样被误读成 JSON 格式问题的。
+    Err(format!(
+        "Refiner did not return a JSON object (len={}, head={:?}, tail={:?})",
+        trimmed.len(),
+        trimmed.chars().take(120).collect::<String>(),
+        trimmed
+            .chars()
+            .rev()
+            .take(120)
+            .collect::<String>()
+            .chars()
+            .rev()
+            .collect::<String>(),
+    ))
 }
 
 /// Normalize an untrusted proposal, preserving invalid edit fields for
@@ -658,11 +673,16 @@ mod tests {
         // Truncated JSON reports the output-budget cause.
         let error = parse_proposal(r#"{"summary":"cut","edits":[{"action":"cre"#).unwrap_err();
         assert_eq!(error, TRUNCATED_JSON_ERROR);
-        // Non-JSON text reports missing JSON.
-        assert_eq!(
-            parse_proposal("no json here").unwrap_err(),
-            "Refiner did not return a JSON object"
+        // Non-JSON text reports missing JSON, and the message carries the
+        // empty-output context that separates "no text at all" from prose.
+        let error = parse_proposal("no json here").unwrap_err();
+        assert!(
+            error.starts_with("Refiner did not return a JSON object"),
+            "{error}"
         );
+        assert!(error.contains("len=12"), "{error}");
+        let empty = parse_proposal("   ").unwrap_err();
+        assert!(empty.contains("len=0"), "{empty}");
     }
 
     #[test]
