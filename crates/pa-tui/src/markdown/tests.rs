@@ -1368,6 +1368,49 @@ fn quote_block() {
 }
 
 #[test]
+fn marker_only_lines_render_literally() {
+    // A line with nothing but a marker has nothing to structure, and rendering
+    // it as structure hides what was sent: the APPEND `>` resume command would
+    // draw as an empty quote bar (looking like `|`). A lone `_`, `-` or `*` is
+    // plain text on both sides of the port and must stay one row.
+    let style = MarkdownStyle::default();
+    for marker in [">", "_", "-", "*"] {
+        let lines = render_markdown(marker, 40, &style);
+        assert_eq!(lines.len(), 1, "{marker:?} renders one row");
+        assert_eq!(lines[0][0].content, marker, "{marker:?} stays visible");
+    }
+}
+
+#[test]
+fn marker_only_guard_keeps_real_structure() {
+    let style = MarkdownStyle::default();
+    // A rule is a visible row, not a hidden marker run: the guard must not
+    // swallow it.
+    let hr = render_markdown("---", 40, &style);
+    assert_eq!(hr.len(), 1);
+    assert_eq!(hr[0][0].content, "─".repeat(40));
+    // An empty first quote line belongs to the quote that follows it.
+    let quote = render_markdown(">\n> hello", 40, &style);
+    let text: String = quote
+        .iter()
+        .flat_map(|row| row.iter().map(|span| span.content.clone()))
+        .collect();
+    assert!(
+        !text.contains('>'),
+        "the quote marker is structure here: {text:?}"
+    );
+    assert!(text.contains("hello"), "{text:?}");
+}
+
+#[test]
+fn lone_underscore_renders_literally() {
+    let style = MarkdownStyle::default();
+    let lines = render_markdown("_", 40, &style);
+    assert_eq!(lines.len(), 1);
+    assert_eq!(lines[0][0].content, "_");
+}
+
+#[test]
 fn emphasis_renders_chalk_modifiers() {
     // TS `theme.bold/italic/strikethrough` are chalk; chalk emits its SGR modifiers in
     // any color terminal (supports-color level >= 1 whenever stdout is a TTY), so

@@ -287,6 +287,19 @@ fn parse_blocks(text: &str) -> Vec<Block> {
             });
             continue;
         }
+        // A lone `>` has no content to quote: rendering it as a blockquote hides
+        // the character behind an empty bar, so the APPEND `>` resume command
+        // looks like `|`. Render it literally. A quote that only *starts* with an
+        // empty marker still holds content, so that one stays a quote.
+        if marker_only(trimmed) && !(trimmed == ">" && quote_carries_content(&src_lines, i)) {
+            blocks.push(Block {
+                kind: BlockKind::Paragraph,
+                sep_blank,
+                lines: vec![trimmed.to_string()],
+            });
+            i += 1;
+            continue;
+        }
         let hashes = trimmed.chars().take_while(|&c| c == '#').count();
         if heading_marker(trimmed) && hashes <= 6 {
             let content = trimmed
@@ -417,6 +430,30 @@ fn parse_blocks(text: &str) -> Vec<Block> {
 pub(crate) fn heading_marker(t: &str) -> bool {
     let hashes = t.chars().take_while(|&c| c == '#').count();
     hashes > 0 && (t.len() == hashes || t.as_bytes()[hashes] == b' ')
+}
+
+/// A line that is only a block marker — nothing for it to structure.
+fn marker_only(t: &str) -> bool {
+    t == ">"
+}
+
+/// Whether the quote started at `start` holds content on any of its lines: an
+/// empty quote marker followed by `> text` is one quote, not a literal line plus
+/// a quote.
+fn quote_carries_content(src_lines: &[&str], start: usize) -> bool {
+    let mut i = start + 1;
+    while let Some(line) = src_lines.get(i) {
+        let t = line.trim();
+        if t.is_empty() {
+            return false;
+        }
+        if t == ">" {
+            i += 1;
+            continue;
+        }
+        return t.starts_with('>');
+    }
+    false
 }
 
 pub(crate) fn is_hr(t: &str) -> bool {

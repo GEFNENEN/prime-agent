@@ -241,6 +241,20 @@ fn user_block_accents_a_recognized_leading_command() {
 }
 
 #[test]
+fn user_block_marker_only_text_stays_visible() {
+    // The APPEND `>` quick command and a literal `_` are user-typed text, not
+    // markdown structure: both must survive the user block renderer.
+    for marker in [">", "_"] {
+        let rows = render_user_block(marker, &theme(), "  ", 60);
+        let text: String = rows[1].iter().map(|s| s.content.as_str()).collect();
+        assert!(
+            text.contains(marker),
+            "{marker:?} renders literally in a user block: {text:?}"
+        );
+    }
+}
+
+#[test]
 fn user_block_mask_shields_tokens_from_markdown() {
     // The mask exists so markdown cannot eat or emphasize the token
     // text: an `@path` full of asterisks renders verbatim in the token
