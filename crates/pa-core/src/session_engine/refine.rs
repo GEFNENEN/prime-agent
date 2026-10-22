@@ -631,7 +631,51 @@ pub fn default_refiner_call(api_key: Option<String>) -> crate::refinement::execu
                     ..Default::default()
                 });
             stream_options.reasoning = pa_types::ai::minimum_reasoning(&model);
-            Ok(pa_ai::complete_simple(&model, &context, Some(stream_options)).await?)
+            // Refinement output is machine-parsed JSON. A prompt-rewriting gateway
+            // (e.g. workbuddy2api's `append` mode) would insert its own system text
+            // after the JSON-only instruction and the model would answer in prose;
+            // ask such gateways to pass this call's system prompt through unchanged.
+            // Unknown headers are ignored by ordinary providers.
+            stream_options.base.headers = Some(std::collections::HashMap::from([(
+                "X-WB2A-Prompt-Mode".to_string(),
+                "passthrough".to_string(),
+            )]));
+            // refine's output is machine-parsed JSON, so a truncated reply is a
+            // hard failure, and a request that carries no budget at all can be
+            // cut short by a small provider default. Give a floor only when the
+            // model declares no output limit; never override a declared one.
+            // (The 2026-10-22 outage was NOT this: that reply was a rejected
+            // request, not a truncated one — see the bail below.)
+            stream_options.base.max_tokens.get_or_insert(8_192);
+            let reply = pa_ai::complete_simple(&model, &context, Some(stream_options)).await?;
+            // 空产出诊断：思考型模型把预算全花在 reasoning 上时，`content` 是空的、
+            // `stopReason` 是 `length`；refine 只把文本交给解析器，那句「没返回 JSON
+            // 对象」就分不出「空文本」与「模型拒答」。只在真没有文本时打，正常路径零噪音。
+            let has_text = reply.content.iter().any(|block| match block {
+                pa_types::ai::AssistantContentBlock::Text(text) => !text.text.trim().is_empty(),
+                _ => false,
+            });
+            if !has_text {
+                // 失败必须是失败：一句「没返回 JSON 对象」把 provider 的真实错误
+                // （HTTP 状态、拒绝原因）藏了起来，2026-10-22 因此误判了一整天。
+                // 与摘要调用（`complete_summary_call`）同一口径：带 provider 的原话。
+                anyhow::bail!(
+                    "refinement reply carried no text (provider={} model={} api={} stop={:?} raw={:?} blocks={} out_tokens={} total_tokens={}): {}",
+                    reply.provider,
+                    reply.model,
+                    reply.api,
+                    reply.stop_reason,
+                    reply.stop_reason_raw,
+                    reply.content.len(),
+                    reply.usage.output,
+                    reply.usage.total_tokens,
+                    reply
+                        .error_message
+                        .clone()
+                        .unwrap_or_else(|| "no provider error message".to_string()),
+                );
+            }
+            Ok(reply)
         })
     })
 }
