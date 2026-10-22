@@ -58,7 +58,19 @@ pub async fn prompt(state: &Arc<RpcState>, payload: &Value) -> Result<ResponseDa
     // replacement can never dispose the kernel mid-command. The model
     // and key pass THROUGH: a re-acquisition behind a waiting writer
     // would deadlock.
-    let model = handle.model.clone();
+    // The slash-command executor reaches the provider directly, so the
+    // session target's auth headers must ride on the model (the same merge
+    // `session_model` performs): a provider routing on a required header
+    // rejects the call without them.
+    let model = crate::agent_engine::model::model_with_headers(
+        handle.model.clone(),
+        handle
+            .provider_target
+            .read()
+            .expect("provider target lock")
+            .as_ref()
+            .and_then(|target| target.headers.clone()),
+    );
     let api_key = handle.api_key.clone();
     let command_result = run_session_command(
         state.as_ref(),

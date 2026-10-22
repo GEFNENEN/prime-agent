@@ -1225,7 +1225,12 @@ impl SessionEngine for AgentSessionEngine {
         &self,
         options: pa_core::session_engine::refine::RefineOptions,
     ) -> anyhow::Result<Value> {
-        let model = self.resolve_model()?;
+        // Refine calls the provider directly (the refiner seam, not the
+        // session's switchable stream), so it takes the model the stream would
+        // use: `session_model` carries the target's auth headers, without which
+        // a provider that routes on one rejects the call (opencode-go answers
+        // 400 MissingSessionID, which reached the refiner as an empty reply).
+        let model = self.session_model()?;
         self.ensure_core_session(&model)?;
         let api_key = self.resolve_request_api_key(&model);
         let global_harness_dir = self.config.agent_dir.clone();
