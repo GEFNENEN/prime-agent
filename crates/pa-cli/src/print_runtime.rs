@@ -1351,7 +1351,22 @@ fn session_open_guard(
     session_path: &std::path::Path,
 ) -> Result<pa_daemon::lease::SessionLease, String> {
     let socket = crate::interactive_mode::resolve_socket_path(socket_path);
-    if let Ok(mut client) = crate::daemon_client::DaemonClient::connect(&socket) {
+    let session_path = session_path.to_path_buf();
+    // The Windows blocking pipe client owns a private Tokio runtime and calls
+    // `Runtime::block_on`. `--mode rpc --resume` reaches this guard from inside
+    // the RPC runtime, and nesting those runtimes panics before the daemon
+    // probe can answer. Run the whole probe on a plain thread so its private
+    // runtime is the only one on that thread.
+    std::thread::spawn(move || session_open_guard_blocking(&socket, &session_path))
+        .join()
+        .map_err(|_| "Session open guard thread panicked".to_string())?
+}
+
+fn session_open_guard_blocking(
+    socket: &std::path::Path,
+    session_path: &std::path::Path,
+) -> Result<pa_daemon::lease::SessionLease, String> {
+    if let Ok(mut client) = crate::daemon_client::DaemonClient::connect(socket) {
         let list = client
             .request(pa_types::daemon::DaemonCommand::List {
                 id: None,
