@@ -187,6 +187,8 @@ pub(crate) async fn build_faux_engine_with(
         api_key: None,
         provider_target,
         rpc_bash_wake,
+        cron_store: None,
+        cron_active_session_id: None,
     })
 }
 

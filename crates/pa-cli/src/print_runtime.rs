@@ -368,6 +368,8 @@ impl From<HeadlessEngine> for pa_daemon::rpc::session::RpcEngineHandle {
                 .rpc_bash_wake
                 .expect("the RPC embedding builds its background-bash wake handle"),
             session_lease: None,
+            cron_store: parts.cron_store,
+            cron_active_session_id: parts.cron_active_session_id,
         }
     }
 }
@@ -605,6 +607,12 @@ pub(crate) struct HeadlessEngine {
     /// The RPC mode's background-bash wake handle; `None` for the print
     /// embeddings (their wake is the node's activity notify).
     pub(crate) rpc_bash_wake: Option<Arc<Notify>>,
+    /// The RPC mode's session cron store: `None` for print/child builds
+    /// (their kernel heartbeat host handlers stay unregistered).
+    pub(crate) cron_store: Option<Arc<pa_core::cron::store::AgentCronJobStore>>,
+    /// The identity kernel-created heartbeats bind to; `None` when no
+    /// cron store is wired.
+    pub(crate) cron_active_session_id: Option<String>,
 }
 
 /// Transfer the opened lease to its mode before fallible engine assembly.
@@ -770,6 +778,52 @@ pub(crate) async fn build_headless_engine_with(
     // ledger-less but the request ids still go on the wire.
     let session_manager = session_manager
         .unwrap_or_else(|| pa_core::session::manager::SessionManager::in_memory(&config.cwd));
+    // The RPC embedding owns a session cron store so the kernel's
+    // `rlm_heartbeat.*` host handlers register and the RPC scheduler can
+    // fire the jobs they create. Print/child embeddings keep the
+    // daemonless behavior (no heartbeat bridge).
+    let (cron_wiring, cron_store, cron_active_session_id) = match embedding {
+        HeadlessEmbedding::Rpc => match session_manager.get_session_artifact_dir() {
+            Some(artifact_dir) => {
+                let session_id = session_manager.get_session_id().to_string();
+                let binding = pa_core::session_engine::runtime_wiring::KernelCronBinding {
+                    active_session_id: session_id.clone(),
+                    session_id: session_id.clone(),
+                    session_file: session_manager
+                        .get_session_file()
+                        .map(|path| path.display().to_string())
+                        .unwrap_or_default(),
+                    cwd: session_manager.get_cwd().display().to_string(),
+                };
+                let store = pa_core::cron::store::AgentCronJobStore::for_session_artifacts();
+                store.register_session_artifact(&binding.session_id, &artifact_dir);
+                let store = std::sync::Arc::new(store);
+                // Move any persisted jobs onto the RPC connection's live
+                // identity (the same rebind the daemon worker performs).
+                if !binding.session_file.is_empty() {
+                    let store_binding = pa_core::cron::store::SessionBinding {
+                        active_session_id: binding.active_session_id.clone(),
+                        session_id: binding.session_id.clone(),
+                        session_file: binding.session_file.clone(),
+                        cwd: binding.cwd.clone(),
+                    };
+                    let _ = store.rebind_session_jobs(&store_binding);
+                }
+                let wiring = pa_core::session_engine::runtime_wiring::KernelCronWiring {
+                    store: std::sync::Arc::clone(&store),
+                    binding: Some(binding),
+                    // No scheduler to wake here: the RPC cron task polls the
+                    // store and reschedules its timer.
+                    mutation_hook: None,
+                };
+                (Some(wiring), Some(store), Some(session_id))
+            }
+            // `--no-session` has no artifact partition to persist a
+            // heartbeat into: keep the daemonless surface.
+            None => (None, None, None),
+        },
+        HeadlessEmbedding::Root { .. } | HeadlessEmbedding::Child(_) => (None, None, None),
+    };
     let HeadlessEmbeddingFields {
         rlm_subagent_host,
         extra_host_handlers,
@@ -813,7 +867,7 @@ pub(crate) async fn build_headless_engine_with(
     let engine = pa_core::session_engine::engine::create_session(
         pa_core::session_engine::engine::SessionEngineConfig {
             on_late_sent_agent_message,
-            cron_store: None,
+            cron_store: cron_wiring,
             semantic_edges,
             telemetry,
             steering_mode,
@@ -873,6 +927,8 @@ pub(crate) async fn build_headless_engine_with(
         api_key: resolved.api_key,
         provider_target,
         rpc_bash_wake,
+        cron_store,
+        cron_active_session_id,
     })
 }
 
