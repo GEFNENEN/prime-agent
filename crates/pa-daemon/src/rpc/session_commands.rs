@@ -48,8 +48,8 @@ pub async fn handle(
         // The TS in-process scheduling surface: list/get answers empty;
         // the mutating commands answer their daemon-mode errors.
         "list_schedules" => Ok(ResponseData::Present(json!({ "jobs": [] }))),
-        "list_heartbeats" => Ok(ResponseData::Present(json!({ "heartbeats": [] }))),
-        "get_heartbeat" => Ok(ResponseData::Present(json!({ "heartbeat": Value::Null }))),
+        "list_heartbeats" => list_heartbeats(state).await,
+        "get_heartbeat" => get_heartbeat(state).await,
         "add_schedule" | "cancel_schedule" => Err(CRON_REQUIRES_DAEMON.to_string()),
         "set_heartbeat" | "update_heartbeat" | "manage_heartbeat" => {
             Err(HEARTBEATS_REQUIRE_DAEMON.to_string())
@@ -76,6 +76,52 @@ pub async fn handle(
     }
 }
 
+/// The live session's heartbeat catalog from the RPC cron store: the same
+/// rows the daemon worker would answer, so a client's native-heartbeat list
+/// works without the CLI fallback.
+async fn list_heartbeats(state: &Arc<RpcState>) -> Result<ResponseData, String> {
+    let handle = state.session.handle().await;
+    let Some(store) = handle.cron_store.as_ref() else {
+        return Ok(ResponseData::Present(json!({ "heartbeats": [] })));
+    };
+    let active = handle.cron_active_session_id.as_deref().unwrap_or_default();
+    let heartbeats: Vec<Value> = store
+        .list()
+        .into_iter()
+        .filter(|job| {
+            pa_core::cron::is_heartbeat_cron_job(job)
+                && (job.active_session_id == active || job.session_id == active)
+        })
+        .map(|job| serde_json::to_value(&job).unwrap_or(Value::Null))
+        .collect();
+    Ok(ResponseData::Present(json!({ "heartbeats": heartbeats })))
+}
+
+/// The newest active/paused heartbeat bound to this session.
+async fn get_heartbeat(state: &Arc<RpcState>) -> Result<ResponseData, String> {
+    let handle = state.session.handle().await;
+    let Some(store) = handle.cron_store.as_ref() else {
+        return Ok(ResponseData::Present(json!({ "heartbeat": Value::Null })));
+    };
+    let active = handle.cron_active_session_id.as_deref().unwrap_or_default();
+    let heartbeat = store
+        .list()
+        .into_iter()
+        .filter(|job| {
+            pa_core::cron::is_heartbeat_cron_job(job)
+                && (job.active_session_id == active || job.session_id == active)
+                && matches!(
+                    job.status,
+                    pa_core::cron::JobStatus::Active | pa_core::cron::JobStatus::Paused
+                )
+        })
+        .max_by_key(|job| job.updated_at.clone())
+        .map_or(Value::Null, |job| {
+            serde_json::to_value(&job).unwrap_or(Value::Null)
+        });
+    Ok(ResponseData::Present(json!({ "heartbeat": heartbeat })))
+}
+
 /// `switch_session`: open the session file as the connection's replacement session.
 async fn switch_session(state: &Arc<RpcState>, payload: &Value) -> Result<ResponseData, String> {
     let session_path = payload
@@ -95,6 +141,7 @@ async fn switch_session(state: &Arc<RpcState>, payload: &Value) -> Result<Respon
         return Err(error);
     }
     super::commands::resume_pump(state);
+    super::cron::restart_cron_scheduler(state).await;
     Ok(ResponseData::Present(json!({ "cancelled": false })))
 }
 
@@ -260,6 +307,7 @@ async fn fork_at(
         return Err(error);
     }
     super::commands::resume_pump(state);
+    super::cron::restart_cron_scheduler(state).await;
     let mut data = json!({ "cancelled": false });
     if let Some(text) = selected_text {
         data["text"] = json!(text);

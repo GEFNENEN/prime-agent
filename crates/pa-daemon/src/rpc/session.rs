@@ -31,6 +31,11 @@ pub struct RpcEngineHandle {
     /// The cross-process ownership lease on the opened session file
     /// (`None` for fresh/in-memory sessions the factory created itself).
     pub session_lease: Option<crate::lease::SessionLease>,
+    /// The RPC embedding's session cron store (`None` when the embedding
+    /// wired none): `list_heartbeats` and the RPC cron scheduler read it.
+    pub cron_store: Option<Arc<pa_core::cron::store::AgentCronJobStore>>,
+    /// The session identity kernel-created heartbeats bind to.
+    pub cron_active_session_id: Option<String>,
 }
 
 /// A whole-session replacement request: a fresh session (optionally under

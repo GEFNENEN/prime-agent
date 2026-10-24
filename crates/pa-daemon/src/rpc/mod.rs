@@ -4,6 +4,8 @@
 //! in-process transport answers daemon-only surfaces with daemon-mode errors.
 
 pub mod commands;
+pub mod compaction;
+pub mod cron;
 pub mod model_commands;
 pub mod prompt_commands;
 pub mod protocol;
@@ -146,7 +148,12 @@ pub async fn run_rpc_mode(options: RpcOptions) -> anyhow::Result<i32> {
         pump_suspended: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         model_ops: Arc::new(tokio::sync::Mutex::new(())),
         session_ops: Arc::new(tokio::sync::Mutex::new(())),
+        cron_scheduler: Arc::new(tokio::sync::Mutex::new(None)),
     });
+    // The session's cron/heartbeat scheduler: the engine build wires the
+    // artifact store; this mode fires its due jobs into the live agent.
+    cron::restart_cron_scheduler(&state).await;
+    cron::serve_cron_scheduler(Arc::clone(&state));
     // The background-bash completion lane: each built engine's wake
     // kicks the queued-work pump, so an idle session runs the
     // completion row's turn.

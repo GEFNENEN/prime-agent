@@ -34,6 +34,15 @@ pub async fn prompt(state: &Arc<RpcState>, payload: &Value) -> Result<ResponseDa
     let behavior = protocol::command_streaming_behavior(payload);
     let handle = state.session.handle().await;
     let engine = handle.engine.clone();
+    // A compaction in flight settles before admission; then an idle
+    // over-threshold context compacts before the new turn (the daemon's
+    // `_runPreTurnCompaction`).
+    if state.compacting.load(Ordering::SeqCst) > 0 {
+        let _ops = state.session_ops.lock().await;
+    }
+    if !engine.session.agent().state().await.is_streaming {
+        super::compaction::auto_compact_if_due(state, &handle).await;
+    }
     let admission = engine
         .session
         .prompt_with_images(
@@ -91,7 +100,7 @@ pub async fn prompt(state: &Arc<RpcState>, payload: &Value) -> Result<ResponseDa
 
 /// One durable session-command row as its `message_start`/`message_end`
 /// pair (the loop's event shape for persisted rows).
-async fn write_command_row(state: &RpcState, message: &CustomMessage) {
+pub(crate) async fn write_command_row(state: &RpcState, message: &CustomMessage) {
     // The row's loop shape: the `custom` role rides BESIDE the row's
     // own fields (a bare round-trip cannot recover it, the session row
     // type carries no role).
