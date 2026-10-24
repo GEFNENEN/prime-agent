@@ -42,6 +42,12 @@ pub struct RpcState {
     /// The context-rebuilding commands' serialization lane (`compact`,
     /// `refine`): they must not interleave.
     pub session_ops: Arc<tokio::sync::Mutex<()>>,
+    /// The session's cron/heartbeat scheduler (rebuilt on replacement).
+    pub(crate) cron_scheduler: Arc<
+        tokio::sync::Mutex<
+            Option<Arc<pa_core::cron::scheduler::AgentCronScheduler<super::cron::RpcCronHooks>>>,
+        >,
+    >,
 }
 
 impl RpcState {
@@ -160,6 +166,16 @@ pub fn kick_queue_pump(
             {
                 return;
             }
+            // The settled turn's threshold check (the daemon's
+            // `_checkCompaction` arm): run before the next queued batch so
+            // the queue delivers onto the compacted context, and after the
+            // last batch so an idle session compacts without a new prompt.
+            {
+                let handle = state.session.handle().await;
+                if std::sync::Arc::ptr_eq(&handle.engine, &engine) {
+                    super::compaction::auto_compact_if_due(&state, &handle).await;
+                }
+            }
             if !agent.has_queued_messages() {
                 break;
             }
@@ -275,6 +291,7 @@ async fn new_session(state: &Arc<RpcState>, payload: &Value) -> Result<ResponseD
         return Err(error);
     }
     resume_pump(state);
+    super::cron::restart_cron_scheduler(state).await;
     Ok(ResponseData::Present(json!({ "cancelled": false })))
 }
 
@@ -463,14 +480,26 @@ async fn compact(state: &Arc<RpcState>, payload: &Value) -> Result<ResponseData,
 /// aborted, willRetry, customInstructions?}`.
 #[must_use]
 pub fn compaction_frame(kind: &str, instructions: Option<&str>, result: Option<&Value>) -> Value {
+    compaction_frame_with_reason(kind, "requested", instructions, result)
+}
+
+/// The same frame with the caller's reason (`requested` for `/compact`,
+/// `threshold` for the automatic arm).
+#[must_use]
+pub fn compaction_frame_with_reason(
+    kind: &str,
+    reason: &str,
+    instructions: Option<&str>,
+    result: Option<&Value>,
+) -> Value {
     if kind == "compaction_start" {
-        let mut frame = json!({ "type": kind, "reason": "requested" });
+        let mut frame = json!({ "type": kind, "reason": reason });
         if let Some(instructions) = instructions {
             frame["customInstructions"] = json!(instructions);
         }
         frame
     } else {
-        let mut frame = json!({ "type": kind, "reason": "requested" });
+        let mut frame = json!({ "type": kind, "reason": reason });
         if let Some(result) = result {
             frame["result"] = result.clone();
         }
