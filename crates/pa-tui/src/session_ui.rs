@@ -235,6 +235,7 @@ pub(crate) struct SessionUi {
     /// frame's visible-window materialization is its own, bigger transient.
     trim_after_frame: bool,
     pending_model: Option<String>,
+    pending_model_name: Option<String>,
     pending_model_provider: Option<String>,
     pending_thinking_suffix: Option<String>,
     pending_queue: Option<crate::queued::QueuedMessages>,
