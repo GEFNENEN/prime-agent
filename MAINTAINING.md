@@ -20,7 +20,7 @@
 ## 2. 分支模型
 
 - `main`：上游镜像。**只沿稳定 tag 快进**，不落任何本地提交。
-- `custom`：我们的补丁分支。提交链 = 基线 + 补丁（当前 17 个，见 PATCHES.md）。
+- `custom`：我们的补丁分支。提交链 = 基线 + 补丁（当前 16 个，见 PATCHES.md）。
 - 基线选择：
   - 有新的稳定 tag（`v0.10.x`）时，优先 rebase 到稳定 tag；
   - 上游长期不发稳定版时，可临时以最新 beta tag 为基线，待稳定版发布后再
@@ -69,7 +69,7 @@ git fetch upstream --tags --prune
 6. **存活检查**（至少跑一遍，防止补丁被静默吞掉）：
    ```powershell
    rg -n "KERNEL_BUSY_REUSE_WAIT_MS|30_000" crates/pa-core/src/kernel/shared.rs
-   rg -n "eq_ignore_ascii_case\(\"Authorization\"\)" crates/pa-ai/src/providers
+   rg -n "opencode_headers::apply|eq_ignore_ascii_case" crates/pa-ai/src/providers
    rg -n "CREATE_NO_WINDOW" crates/pa-core/src/platform/process.rs
    rg -n "turn_hook|set_turn_hook" crates/pa-core/src/session_engine/engine.rs
    rg -n "stop_hook|set_stop_hook" crates/pa-core/src/session_engine/engine.rs
@@ -107,9 +107,9 @@ rebase 期间不要用 `git rebase -i` 手工压缩历史；补丁保持独立�
 
 | 改动领域 | 命令 |
 | --- | --- |
-| turnHook / stopHook / retry_nudge | `cargo test -p pa-core turn_hook stop_hook retry_nudge --lib` |
+| turnHook / stopHook / retry_nudge | `cargo test -p pa-core --lib turn_hook`，`stop_hook`、`retry_nudge` 同样逐个跑（`cargo test` 只接受一个 TESTNAME） |
 | 空回复重试（daemon 真实 HTTP/SSE） | `cargo test -p pa-daemon empty_reply --lib` |
-| Authorization 去重 | `cargo test -p pa-ai authorization_header --lib` |
+| Authorization 去重 | `cargo test -p pa-ai --lib authorization` |
 | CLI 命令 | `cargo test -p pa-cli --lib`（端口类失败可能是环境性，见下） |
 | 全量回归对照 | 见下方「基线对照」 |
 
@@ -133,9 +133,17 @@ git worktree remove --force ../pa-base-check
 - `pa-core --lib`：`session::window`（稀疏文件权限）、`shell_utils`（bash）、
   `path_utils`（HOME）、`packages`（npm/git）、`kernel::orphan_journal`
   （Linux 进程标识）等，在 Windows 上可能成批失败。
+- `session_engine::tests::an_agent_end_writes_back_through_the_stop_hook` 与
+  `session_engine::stop_hook::tests::a_custom_only_run_skips_the_command`：
+  在 Windows + `more > <file>` 重定向下会读到「文件已存在但内容为空」的瞬态，
+  已在上游 `v0.10.2-beta.10` 上 10/10 复现，属于测试自身的写入竞态，不是回归。
 - 端口相关测试（`mcp_login`、OAuth 回调等）：Windows 上某些端口段可能被
   HNS/WinNAT 类组件保留，报 `os error 10048`（端口被占用），与代码无关。
   管理员执行 `net stop winnat && net start winnat` 可临时缓解。
+
+**不要用共享 `CARGO_TARGET_DIR` 做 A/B 对照**：两棵 worktree 会互相覆盖同名
+测试二进制，导致两边都"失败"的假象。对照时给每棵树单独的 `CARGO_TARGET_DIR`，
+或者先在一棵树上跑完再切另一棵。
 
 ## 6. 部署与回滚
 
