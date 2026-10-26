@@ -104,6 +104,7 @@ impl SessionUi {
             pending_snapshot: None,
             trim_after_frame: false,
             pending_model: None,
+            pending_model_name: None,
             pending_model_provider: None,
             pending_thinking_suffix: None,
             pending_queue: None,
@@ -477,6 +478,7 @@ impl SessionUi {
         // request safe — the in-flight slot frees on its own cycle).
         self.spawn_factory_refresh();
         self.pending_model = reconstructed.model_id;
+        self.pending_model_name = reconstructed.model_name;
         self.pending_model_provider = reconstructed.model_provider;
         self.pending_thinking_suffix = reconstructed.thinking_suffix;
         // The tray's context usage follows the attach snapshot (TS
@@ -624,6 +626,7 @@ impl SessionUi {
         }
         if let Some(model) = self.pending_model.take() {
             view.chrome.model_id = Some(model);
+            view.chrome.model_name = self.pending_model_name.take();
             view.chrome.model_provider = self.pending_model_provider.take();
         }
         // The tray badge mirrors the session-scoped tier on every rebuild: an

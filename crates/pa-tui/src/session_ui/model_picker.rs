@@ -479,13 +479,17 @@ impl SessionUi {
                 .and_then(|model| model.get("provider"))
                 .and_then(Value::as_str)
                 .map_or_else(|| picked_provider.to_string(), str::to_string);
+            let model_name = model
+                .and_then(super::super::snapshot::model_display_name);
             view.chrome.model_id = Some(model_id);
+            view.chrome.model_name = model_name;
             view.chrome.model_provider = Some(model_provider);
             view.chrome.thinking_suffix = crate::chrome::tray_thinking_suffix(&data);
         } else {
             // The picked model's effort is unknown when the read fails: a stale suffix would pair
             // the new model with the old model's level, so the bare id wins.
             view.chrome.model_id = Some(picked_model_id.to_string());
+            view.chrome.model_name = None;
             view.chrome.model_provider = Some(picked_provider.to_string());
             view.chrome.thinking_suffix = None;
         }

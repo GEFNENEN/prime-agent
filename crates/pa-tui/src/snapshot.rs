@@ -42,6 +42,9 @@ pub struct Reconstructed {
     pub chat: Vec<ChatEntry>,
     /// Current model id (`state.model.id`), when the session reports one.
     pub model_id: Option<String>,
+    /// The model's configured display name (`models.json` `name`), when the
+    /// snapshot's `state.model` carries it.
+    pub model_name: Option<String>,
     /// The current model's provider (`state.model.provider`): the
     /// picker matches by provider plus id.
     pub model_provider: Option<String>,
@@ -333,6 +336,9 @@ pub fn reconstruct(attach: &AttachData) -> Reconstructed {
         .and_then(|state| state.get("model"))
         .and_then(model_identity_value)
         .map_or((None, None), |(id, provider)| (Some(id), provider));
+    let model_name = state
+        .and_then(|state| state.get("model"))
+        .and_then(model_display_name);
     let thinking_suffix = state.and_then(crate::chrome::tray_thinking_suffix);
     let context_usage = state
         .and_then(|state| state.get("contextUsage"))
@@ -420,6 +426,7 @@ pub fn reconstruct(attach: &AttachData) -> Reconstructed {
     Reconstructed {
         chat: messages,
         model_id,
+        model_name,
         model_provider,
         thinking_suffix,
         context_usage,
@@ -528,6 +535,18 @@ fn model_identity_value(model: &Value) -> Option<(String, Option<String>)> {
         }
         _ => None,
     }
+}
+
+/// The model's configured display name from a `state.model` wire value.
+/// Absent for the display-string form and for an entry with no `name`, in
+/// which case the tray falls back to the raw id.
+pub(crate) fn model_display_name(model: &Value) -> Option<String> {
+    let object = model.as_object()?;
+    let name = object.get("name").and_then(Value::as_str)?.trim();
+    if name.is_empty() {
+        return None;
+    }
+    Some(name.to_string())
 }
 
 /// Parse attach data out of a successful attach/create response payload.

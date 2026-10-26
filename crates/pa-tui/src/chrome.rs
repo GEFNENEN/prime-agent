@@ -47,6 +47,10 @@ pub struct ChromeState {
     pub cwd: String,
     /// Current model id (splash `model` line; `None` hides the line).
     pub model_id: Option<String>,
+    /// The model's configured display name (the `name` field of a
+    /// `models.json` entry). The tray prefers it over the raw id, because
+    /// `DeepSeek-V4.1-Flash (headroom)` says more than `deepseek-v4.1-flash`.
+    pub model_name: Option<String>,
     /// The current model's provider: two providers can carry the same id,
     /// so only the provider disambiguates the picker's match.
     pub model_provider: Option<String>,
@@ -540,7 +544,20 @@ pub fn render_tray_with_hint(
     }
     let mut right: Line = Vec::new();
     if let Some(model) = &state.model_id {
-        let mut label = model.clone();
+        // Always lead with the provider: several providers serve the same
+        // model id, and the configured display name cannot be trusted to
+        // say which one. The name replaces the id as the model half, so
+        // `provider / DeepSeek-V4.1-Flash (headroom):max`.
+        let model_half = match &state.model_name {
+            Some(name) if !name.trim().is_empty() => name.trim(),
+            _ => model.as_str(),
+        };
+        let mut label = match &state.model_provider {
+            Some(provider) if !provider.trim().is_empty() => {
+                format!("{} / {model_half}", provider.trim())
+            }
+            _ => model_half.to_string(),
+        };
         if let Some(suffix) = &state.thinking_suffix {
             label.push(':');
             label.push_str(suffix);
