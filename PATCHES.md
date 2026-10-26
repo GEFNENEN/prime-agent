@@ -4,55 +4,66 @@
 补丁被移除或合并进上游后，对应条目直接删除，不保留历史记录（历史见
 `git log main..custom`）。
 
-- 基线：`v0.10.1`（上游发布提交 `8aac86924`，即 `main` 当前头）
-- 补丁数：**17**
+- 基线：`v0.10.2-beta.10`（上游 `c4c238ca0` 的 tag-only 提交，`main` 当前头）
+- 补丁数：**16**
 - 维护流程见 [MAINTAINING.md](MAINTAINING.md)
 
 | # | 提交 | 类型 | 摘要 |
 | --- | --- | --- | --- |
-| 1 | `1004b1698` | fix | 不再重复发送 Authorization 头 |
-| 2 | `de9561a5a` | fix | 顶栏始终显示会话工作目录 |
-| 3 | `8fd61a295` | fix | 内核忙时等待更久（5s → 30s） |
-| 4 | `504d4ddf0` | fix | 从 agent 主题目录解析自定义主题 |
-| 5 | `7edc7b420` | fix | 分离进程不再弹出控制台窗口 |
-| 6 | `757056bfe` | feat | 每个被接纳的 turn 前运行 turnHook |
-| 7 | `de4d9717d` | feat | 运行结束后通过 stopHook 写回 |
-| 8 | `e69304175` | fix | 在运行结束前同步 spawn stopHook |
-| 9 | `de8291fbf` | feat | 用 updateGuard 拦截自更新 |
-| 10 | `d83542d13` | fix | Windows 剪贴板走 UTF-8 控制台 |
-| 11 | `6978f1c02` | fix | 所有多行粘贴折叠为标记 |
-| 12 | `8dcbab620` | feat | 新增 clean-kernel-state 命令 |
-| 13 | `3f949686f` | fix | 空回复自动重试 + 流空闲超时 |
-| 14 | `f65063fc4` | fix | 停滞的子代理重新派活 + 重试提示按回合隔离 |
-| 15 | `f6c9bcc26` | fix | 停滞通知只发给父代理一次 |
-| 16 | `e70397e4a` | fix | 收养无 bootstrap 记录的 kernel venv |
-| 17 | `f9fd707a3` | fix | 空回复重试前固定等 3 秒 |
+| 1 | `9e4335a76` | fix | 顶栏始终显示会话工作目录 |
+| 2 | `a1e9e51d2` | fix | 内核忙时等待更久（5s → 30s） |
+| 3 | `77708a80b` | fix | 从 agent 主题目录解析自定义主题 |
+| 4 | `ba9936cb1` | fix | 分离进程不再弹出控制台窗口 |
+| 5 | `4e54b50cb` | feat | 每个被接纳的 turn 前运行 turnHook |
+| 6 | `be481d871` | feat | 运行结束后通过 stopHook 写回 |
+| 7 | `2c5fa729c` | fix | 在运行结束前同步 spawn stopHook |
+| 8 | `63da66dbf` | feat | 用 updateGuard 拦截自更新 |
+| 9 | `0a31a298f` | fix | Windows 剪贴板走 UTF-8 控制台 |
+| 10 | `87c6ff653` | fix | 所有多行粘贴折叠为标记 |
+| 11 | `db9606852` | feat | 新增 clean-kernel-state 命令 |
+| 12 | `8ed36305c` | fix | 空回复自动重试 + 流空闲超时 |
+| 13 | `c1ff59958` | fix | 停滞的子代理重新派活 + 重试提示按回合隔离 |
+| 14 | `99e5e75a0` | fix | 停滞通知只发给父代理一次 |
+| 15 | `9428c8307` | fix | 收养无 bootstrap 记录的 kernel venv |
+| 16 | `b9f39406d` | fix | 空回复重试前固定等 3 秒 |
+
+补丁之外还有文档与版本戳提交（`a7207133a`、`8a860c7d5`、`84706f55f`、
+`7186e2728`、`5e383efbc`、`15a825082`），以及两个尚未定性的修复：
+
+- `8c7b1dd85` / `0581b7fef`（refine 的机器可解析与空回复诊断）——保留。
+  上游 `c4c238ca0` 之后 `default_refiner_call` 多了 `session_id` 参数，
+  我们的改动加在函数体内，位置不冲突。
+- `1e9266975`（daemon 把 provider 头贴到 `Model` 上给直连接缝用）——**待定**。
+  上游 `c4c238ca0` 已用 `StreamOptions.session_id` + `opencode_headers::apply`
+  覆盖了同样的 400 `MissingSessionID` 场景（摘要、refine、分支摘要都带 id
+  且走 SSE）。两者机制不同、可以共存，但我们的可能已经多余。需要一次
+  真实 `/refine` 调用确认后再决定删除。
 
 ---
 
-## 1. Authorization 去重（`1004b1698`）
+## 0. 已移交上游（不要再当本地补丁）
 
-**问题**：`openai-completions` / `openai-responses` 两条路径无条件追加
-`Authorization: Bearer ...`，而 provider 配置（`authHeader: true`）已经注入过
-一次。边缘网关对重复头返回 `400`（响应体为 CDN 错误页），表现为所有 provider
-"同时不可用"。
+**Authorization 去重**：原 `1004b1698` 已删除，改由上游 `85755cb8a` 承担。
+上游的做法是「默认 bearer 先入列，model/caller header 大小写不敏感地覆盖它」，
+与我们「删掉已有再写 api_key」相反：`authHeader: true` 时**显式 header 赢**，
+而不是强制用 `apiKey`。本机 12 个 provider 全是 `authHeader: false`，
+正常路径不带 `Authorization` 头部，两者行为等价。
 
-**行为**：发请求前先按大小写不敏感删除已有的 `Authorization`，再写入唯一值。
-根因是 Rust 移植把 TS 的 `HeaderMap`（同名覆盖）改成了裸 `Vec<(String, String)>`。
+**`ipython_state` 封顶与去重**：由上游 `e2bcc6add` 承担。名字清单封顶
+200 个 / 4KB（超出加 `+N more`），`build_session_context` 只保留最新一份，
+摘要调用不再接收该行。这条直接修掉了 p8 会话「压缩后地板过高 → 连环压缩」的病。
 
-**文件**：`crates/pa-ai/src/providers/openai_completions/params.rs`、
-`crates/pa-ai/src/providers/openai_responses.rs`
+**opencode 会话身份**：由上游 `c4c238ca0` 承担。`session_id` 进入
+`StreamOptions`，`opencode_headers::apply` 为 `opencode`/`opencode-go`
+补 `User-Agent` 与 `x-opencode-session`，且 caller header 优先。
 
-**验证**：`cargo test -p pa-ai authorization_header --lib`；e2e 抓包确认每请求
-恰好 1 个头（此前 2 个）。
-
-## 2. 顶栏显示 cwd（`de9561a5a`）
+## 1. 顶栏显示 cwd（`9e4335a76`）
 
 **行为**：会话顶栏的显示名附带当前工作目录，便于区分同名会话。
 
 **文件**：`crates/pa-tui/src/session_ui.rs`
 
-## 3. 内核忙等待 30s（`8fd61a295`）
+## 2. 内核忙等待 30s（`a1e9e51d2`）
 
 **问题**：中断或快速切换后内核仍忙时，5 秒超时会过早报 "kernel busy"。
 
@@ -60,7 +71,7 @@
 
 **文件**：`crates/pa-core/src/kernel/shared.rs`
 
-## 4. 自定义主题（`504d4ddf0`）
+## 3. 自定义主题（`77708a80b`）
 
 **问题**：0.10.0 的 `load_theme` 硬编码只认 `prime/dark/light`，未知名字静默
 回退；`theme.rs` 里已有的 `load_theme_from_path` 没有任何调用者。
@@ -71,7 +82,7 @@
 **文件**：`crates/pa-tui/src/app.rs`、`crates/pa-tui/src/theme.rs`、
 `crates/pa-tui/src/session_ui/settings.rs`
 
-## 5. 黑窗修复（`7edc7b420`）
+## 4. 黑窗修复（`ba9936cb1`）
 
 **问题**：Windows 上 `DETACHED_PROCESS` 会静默取消 `CREATE_NO_WINDOW`，
 后台进程（MCP、更新器）各自弹出可见控制台窗口。
@@ -84,7 +95,7 @@
 
 **验证**：spawn 前基线枚举窗口，批量触发 MCP/更新路径 0 弹窗。
 
-## 6. turnHook（`757056bfe`）
+## 5. turnHook（`4e54b50cb`）
 
 **行为**：`settings.json` 配置
 `"turnHook": {"command": "...", "timeoutMs": 30000}`。每个被接纳的 turn 在
@@ -98,7 +109,7 @@
 **验证**：`cargo test -p pa-core turn_hook --lib`（10 项）+ e2e 假 provider
 确认注入标记出现在请求体中、每 turn 一次。
 
-## 7. stopHook（`de4d9717d`）
+## 6. stopHook（`be481d871`）
 
 **行为**：`settings.json` 配置
 `"stopHook": {"command": "...", "timeoutMs": 70000}`。运行结束时把本次转录
@@ -113,7 +124,7 @@
 **验证**：`cargo test -p pa-core stop_hook --lib`（8 项）+ e2e 假 hindsight
 服务收到 `POST /v1/default/banks/<bank>/memories`。
 
-## 8. stopHook 同步 spawn（`e69304175`）
+## 7. stopHook 同步 spawn（`2c5fa729c`）
 
 **问题**：在 `tokio::spawn` 的分离任务里启动 hook，一次性运行时会在任务
 被取消前退出，命令从未执行。
@@ -123,7 +134,7 @@
 
 **文件**：`crates/pa-core/src/session_engine/{stop_hook,turn_hook,wiring}.rs`
 
-## 9. updateGuard（`de8291fbf`）
+## 8. updateGuard（`63da66dbf`）
 
 **行为**：`settings.json` 出现 `"updateGuard": {"hold": true, "message": "..."}`
 时拦截 `/update`、`prime-agent update` 与包自更新（`hold:false` 放行）；
@@ -133,7 +144,7 @@
 `crates/pa-cli/src/{self_update,client_update,client_settings,public_command}.rs`、
 `crates/pa-tui/src/{client_settings,session_ui/commands}.rs`
 
-## 10. 剪贴板中文乱码（`d83542d13`）
+## 9. 剪贴板中文乱码（`0a31a298f`）
 
 **问题**：Windows 的 `clip.exe` 按控制台代码页（部分中文系统为 936/GBK）
 解释 stdin，UTF-8 中文粘贴后变乱码。
@@ -143,14 +154,14 @@
 
 **文件**：`crates/pa-tui/src/clipboard.rs`
 
-## 11. 多行粘贴折叠（`6978f1c02`）
+## 10. 多行粘贴折叠（`87c6ff653`）
 
 **行为**：任何多行粘贴（≥2 行）都折叠为 `[paste #N +M lines]` 标记，
 展开后仍是原文；原阈值 ≥10 行只对超长粘贴生效。
 
 **文件**：`crates/pa-tui/src/editor/mod.rs`
 
-## 12. clean-kernel-state（`8dcbab620`）
+## 11. clean-kernel-state（`db9606852`）
 
 **行为**：新增命令
 
@@ -167,7 +178,7 @@ prime-agent clean-kernel-state [--days <n>] [--dry-run] [--json]
 **验证**：6 项单测 + `cargo test -p pa-cli --lib`；实测 dry-run 与正式清理
 均正常（可回收数百个文件、数 GB 空间）。
 
-## 13. 空回复重试 + 流空闲超时（`3f949686f`）
+## 12. 空回复重试 + 流空闲超时（`8ed36305c`）
 
 **问题 A**：模型返回 `stopReason=stop` 但内容只有 thinking（无文本、无工具
 调用）时，prime-agent 视为正常结束，用户看到"突然停住"。在一份真实会话
@@ -194,7 +205,7 @@ prime-agent clean-kernel-state [--days <n>] [--dry-run] [--json]
 **限制**：`-p` 打印模式不经过该 daemon 路径，空回复重试仅对 TUI 生效；
 流空闲超时两条路径都生效。
 
-## 14. 停滞子代理重新派活 + 重试提示按回合隔离（`f65063fc4`）
+## 13. 停滞子代理重新派活 + 重试提示按回合隔离（`c1ff59958`）
 
 **问题 A**：补丁 13 的重试仍失败时，顶层会话会显示警告行，但子代理只会变
 为 idle。子代理仅在 **settle**（worker 队列清空）时由父代理收到
@@ -225,7 +236,7 @@ prime-agent clean-kernel-state [--days <n>] [--dry-run] [--json]
 
 **限制**：同补丁 13，`-p` 模式不经过 daemon 路径，此项仅对 TUI 生效。
 
-## 15. 停滞通知只发给父代理一次（`f6c9bcc26`）
+## 14. 停滞通知只发给父代理一次（`99e5e75a0`）
 
 **问题**：补丁 14 的通知无条件发送。子代理每开始一个新 turn 又空回复时都会再发
 一次，父代理收到通知后回消息、子代理再跑一轮又空又发——形成正反馈，父代理被
@@ -243,7 +254,7 @@ prime-agent clean-kernel-state [--days <n>] [--dry-run] [--json]
 `a_repeat_stall_does_not_flood_the_parent`：连续两轮空回复只产生 1 条通知，
 但每轮各 1 条警告行）。
 
-## 16. 收养无 bootstrap 记录的 kernel venv（`e70397e4a`）
+## 15. 收养无 bootstrap 记录的 kernel venv（`9428c8307`）
 
 **问题**：`.bootstrap-version` 是 bootstrap 最后一步写的。若 bootstrap 在装完
 运行时、写记录前被杀（部署重启、多 worker 同时启动都常见），会留下一个完整可用
@@ -265,7 +276,7 @@ worker 的 kernel python 在该目录里运行，删除就会以"拒绝访问"�
 **验证**：`cargo test -p pa-core bootstrap:: --lib`（32 项，新增收养成功、
 运行时损坏不收养、已有记录不动、无记录但可用的 venv 绝不被删除）。
 
-## 17. 空回复重试前固定等 3 秒（`f9fd707a3`）
+## 16. 空回复重试前固定等 3 秒（`b9f39406d`）
 
 **问题**：补丁 13 的重试是立即重发。空回复多由 provider 瞬时抖动引起，立刻重试
 往往撞上同一个抖动，等于白耗掉唯一一次重试。
