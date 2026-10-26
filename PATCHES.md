@@ -5,7 +5,7 @@
 `git log main..custom`）。
 
 - 基线：`v0.10.2-beta.10`（上游 `c4c238ca0` 的 tag-only 提交，`main` 当前头）
-- 补丁数：**16**
+- 补丁数：**17**
 - 维护流程见 [MAINTAINING.md](MAINTAINING.md)
 
 | # | 提交 | 类型 | 摘要 |
@@ -26,6 +26,7 @@
 | 14 | `99e5e75a0` | fix | 停滞通知只发给父代理一次 |
 | 15 | `9428c8307` | fix | 收养无 bootstrap 记录的 kernel venv |
 | 16 | `b9f39406d` | fix | 空回复重试前固定等 3 秒 |
+| 17 | `63d0d8c24` | fix | 托盘显示 provider 与配置的模型名 |
 
 补丁之外还有文档与版本戳提交（`a7207133a`、`8a860c7d5`、`84706f55f`、
 `7186e2728`、`5e383efbc`、`15a825082`），以及两个尚未定性的修复：
@@ -289,3 +290,29 @@ worker 的 kernel python 在该目录里运行，删除就会以"拒绝访问"�
 
 **验证**：`cargo test -p pa-daemon empty_reply --lib`（5 项；整组耗时从 0.11s
 增至约 6.2s，证明等待真实生效）。
+
+## 17. 托盘显示 provider 与配置的模型名（`63d0d8c24`）
+
+**问题**：托盘右下角只渲染 `state.model.id`。`models.json` 的 `name` 字段完全没进入
+UI，`opencode-go` 和 `opencode-go-hr` 上的同一个 `deepseek-v4.1-flash` 因此显示成
+一模一样的两行。provider 其实早已在 wire 上（`SessionEngine::model_metadata` 同时给
+`id`、`name`、`provider`），是 TUI 侧丢掉了。
+
+**行为**：标签改为 `provider / name:effort`。`name` 缺省时用 id，provider 缺省时
+只剩模型名（display-string 形态的 `state.model` 没有 provider）。**不**做「name 里
+已含 provider 就省略前缀」的推断：`name` 是给人读的自由文本，写 `astra @ zao` 还是
+`GLM-5.3 (YES工程师)` 由配置作者决定，靠字符串匹配猜重复会错判。
+
+**取舍**：`/` 两侧各留一个空格，因为 `name` 里常带括号与 `@`，裸 `/` 会糊成一团。
+代价是宽模型名会挤占右侧的上下文用量：本机最宽一条（
+`opencode-go / DeepSeek-V4.1-Flash-Free (OpenCode GO):max`）56 个字符格。
+
+**文件**：`crates/pa-tui/src/chrome.rs`（`model_name` 字段 + 拼接）、
+`crates/pa-tui/src/snapshot.rs`（`Reconstructed::model_name` +
+`model_display_name`）、`crates/pa-tui/src/session_ui.rs`、
+`crates/pa-tui/src/session_ui/lifecycle.rs`（attach 折叠）、
+`crates/pa-tui/src/session_ui/model_picker.rs`（切换模型；失败分支清空 name，
+避免用旧模型的名字标注新模型）。
+
+**验证**：`cargo check -p pa-tui --all-targets`。未加测试、未实机验证（按当时要求
+只做编译验证）。
