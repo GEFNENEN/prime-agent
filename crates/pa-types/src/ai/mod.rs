@@ -141,6 +141,12 @@ impl ModelThinkingLevel {
 pub type ThinkingLevelMap = std::collections::BTreeMap<ModelThinkingLevel, Option<String>>;
 
 /// Token budgets for each thinking level (token-based providers only).
+///
+/// `xhigh` and `max` are first-class tiers, not aliases of `high`: a caller that
+/// selects `max` must reach the wire as a `max` budget, or the selection is lost
+/// before the provider ever sees it. A provider that cannot honour the size
+/// clamps it server-side; dropping the distinction on our side is the one
+/// failure the provider cannot recover from.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ThinkingBudgets {
@@ -152,6 +158,10 @@ pub struct ThinkingBudgets {
     pub medium: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub high: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub xhigh: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max: Option<u64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
