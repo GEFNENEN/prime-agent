@@ -5,7 +5,7 @@
 `git log main..custom`）。
 
 - 基线：`v0.10.2-beta.10`（上游 `c4c238ca0` 的 tag-only 提交，`main` 当前头）
-- 补丁数：**17**
+- 补丁数：**18**
 - 维护流程见 [MAINTAINING.md](MAINTAINING.md)
 
 | # | 提交 | 类型 | 摘要 |
@@ -27,6 +27,7 @@
 | 15 | `9428c8307` | fix | 收养无 bootstrap 记录的 kernel venv |
 | 16 | `b9f39406d` | fix | 空回复重试前固定等 3 秒 |
 | 17 | `63d0d8c24` | fix | 托盘显示 provider 与配置的模型名 |
+| 18 | `27364d28d` | fix | 推理档位一路带到线上 |
 
 补丁之外还有文档与版本戳提交（`a7207133a`、`8a860c7d5`、`84706f55f`、
 `7186e2728`、`5e383efbc`、`15a825082`），以及两个尚未定性的修复：
@@ -316,3 +317,47 @@ UI，`opencode-go` 和 `opencode-go-hr` 上的同一个 `deepseek-v4.1-flash` �
 
 **验证**：`cargo check -p pa-tui --all-targets`。未加测试、未实机验证（按当时要求
 只做编译验证）。
+
+## 18. 推理档位一路带到线上（`27364d28d`）
+
+**问题**：选 `max` 从来没有到达 provider。三处独立丢失，任一都足以让档位消失：
+
+1. `ThinkingBudgets` 没有 `xhigh` / `max` 字段——配置了也无处安放。
+2. `adjust_max_tokens_for_thinking` 在选预算**之前**调用 `clamp_reasoning`，而后者把
+   xhigh/max 映射成 high，于是该函数里 `Xhigh` 和 `Max` 两个匹配分支永远不可达，三档
+   全都发出 `budgets.high`。
+3. anthropic 的 budget 分支只发 `budget_tokens`。非 adaptive 路由没有 `thinking` 对象
+   可以承载档位，token 数就是唯一痕迹；一旦模型输出上限把两档压成同一个数字，痕迹也
+   没了。
+
+**行为**：
+
+- 默认阶梯延伸到 `max`（xhigh 32,768 / max 65,536），模型声明的输出上限仍然生效——
+  那是服务端的事。
+- anthropic budget 分支额外发 `output_config.effort`（映射后的档位名）。
+- Bedrock 的自定义预算查找同样改为先按**请求档位**查，只有配置里该档为空才回退到
+  clamp 后的档位。
+- `openai-completions` 区分两种 `supportsReasoningEffort: false`：无声明时继承的是本
+  crate 对服务端的**探测猜测**（prime-inference 被探测为 false 是因为它忽略该字段），
+  这时不再压制模型已声明的档位；路由自己 compat 块里写的 false 是**显式声明**，仍然
+  遵守。
+
+**不改什么**：provider 拿这个值做什么，不在补丁范围内。本补丁只保证调用方的选择离开
+本进程。
+
+**文件**：`crates/pa-types/src/ai/mod.rs`、
+`crates/pa-ai/src/providers/simple_options.rs`、
+`crates/pa-ai/src/providers/anthropic/mod.rs`、
+`crates/pa-ai/src/providers/anthropic/params.rs`、
+`crates/pa-ai/src/providers/bedrock/mod.rs`、
+`crates/pa-ai/src/providers/openai_completions/params.rs`
+
+**配置侧**（`models.json`，不入库）：`yes` 的 `supportsReasoningEffort` 改为 true；
+`opencode-go` 从 `anthropic-messages` 切到 `openai-completions`（baseUrl 补 `/v1`，
+compat 补 `thinkingFormat: deepseek`）；三个 provider 的 `deepseek-v4.1-flash`
+`maxTokens` 提到 50,000，否则模型上限会把 xhigh 与 max 压成同一个数字。
+
+**验证**：`cargo test -p pa-ai --lib`（373 项通过；`oauth::anthropic_callback`
+因端口占用失败，改动前即失败）。新增 5 个测试钉住行为，其中
+`the_switched_opencode_go_route_sends_max` 断言报文含
+`reasoning_effort: "max"` 与 `thinking: {type: enabled}`。
