@@ -373,10 +373,26 @@ fn build_additional_model_request_fields(model: &Model, options: &BedrockOptions
                 // Budget-based Claude has no max tier, clamp to high
                 (ModelThinkingLevel::Max, 16384),
             ];
-            // Custom budgets are keyed by the clamped level; xhigh/max resolve through the `high`
-            // entry, matching the TS.
+            // Resolve the custom budget against the REQUESTED level first: a
+            // caller that configured `xhigh`/`max` budget entries expects those
+            // to be used, and clamping before the lookup silently rerouted both
+            // tiers to `high`. Only a level the configured set leaves empty
+            // falls back to the clamped entry -- the Bedrock vocabulary itself
+            // tops out at `high`, which is what the default ladder encodes.
+            let requested_budget = options
+                .thinking_budgets
+                .as_ref()
+                .and_then(|budgets| match reasoning {
+                    ModelThinkingLevel::Minimal => budgets.minimal,
+                    ModelThinkingLevel::Low => budgets.low,
+                    ModelThinkingLevel::Medium => budgets.medium,
+                    ModelThinkingLevel::High => budgets.high,
+                    ModelThinkingLevel::Xhigh => budgets.xhigh,
+                    ModelThinkingLevel::Max => budgets.max,
+                    ModelThinkingLevel::Off => None,
+                });
             let clamped_level = clamp_reasoning(reasoning);
-            let custom_budget =
+            let custom_budget = requested_budget.or_else(|| {
                 options
                     .thinking_budgets
                     .as_ref()
@@ -385,7 +401,8 @@ fn build_additional_model_request_fields(model: &Model, options: &BedrockOptions
                         ModelThinkingLevel::Low => budgets.low,
                         ModelThinkingLevel::Medium => budgets.medium,
                         _ => budgets.high,
-                    });
+                    })
+            });
             let budget = custom_budget.or_else(|| {
                 DEFAULT_BUDGETS
                     .iter()
@@ -856,6 +873,16 @@ pub fn stream_simple_bedrock(
             ModelThinkingLevel::Low => budgets.low = Some(adjusted.1),
             ModelThinkingLevel::Medium => budgets.medium = Some(adjusted.1),
             _ => budgets.high = Some(adjusted.1),
+        }
+        // The Bedrock Converse budget vocabulary stops at `high`, so a
+        // requested `xhigh`/`max` is served by the `high` entry above. Mirror
+        // the resolved budget onto the requested tier as well: a later read of
+        // this budget set by the requested level must not fall back to the
+        // default ladder and lose the value just computed.
+        match reasoning.expect("checked above") {
+            ModelThinkingLevel::Xhigh => budgets.xhigh = Some(adjusted.1),
+            ModelThinkingLevel::Max => budgets.max = Some(adjusted.1),
+            _ => {}
         }
 
         return stream_bedrock(

@@ -63,7 +63,11 @@ pub fn build_base_options(
     }
 }
 
-/// Clamp `xhigh`/`max` to `high` (mirrors `clampReasoning`).
+/// Clamp `xhigh`/`max` to `high` for the callers that have no tier above
+/// `high` to send (the Bedrock budget vocabulary, the Google budget
+/// vocabularies). Budget assembly for providers that DO carry the wider
+/// ladder must not funnel through this: it would erase the distinction
+/// before the level is resolved to a token count.
 pub fn clamp_reasoning(effort: ModelThinkingLevel) -> ModelThinkingLevel {
     match effort {
         ModelThinkingLevel::Xhigh | ModelThinkingLevel::Max => ModelThinkingLevel::High,
@@ -81,11 +85,18 @@ pub fn adjust_max_tokens_for_thinking(
     reasoning_level: ModelThinkingLevel,
     custom_budgets: Option<&ThinkingBudgets>,
 ) -> Result<(u64, u64), String> {
+    // The default ladder climbs to `max`. `xhigh` and `max` default to twice
+    // the tier below them rather than reusing `high`, so a caller selecting
+    // either tier reaches the wire with a budget that actually differs from
+    // `high`'s. A provider too small for the value clamps it server-side; the
+    // point here is to never flatten the tiers before the request is built.
     let default_budgets = ThinkingBudgets {
         minimal: Some(1024),
         low: Some(2048),
         medium: Some(8192),
         high: Some(16384),
+        xhigh: Some(32768),
+        max: Some(65536),
     };
     let budgets = match custom_budgets {
         Some(custom) => ThinkingBudgets {
@@ -93,19 +104,23 @@ pub fn adjust_max_tokens_for_thinking(
             low: custom.low.or(default_budgets.low),
             medium: custom.medium.or(default_budgets.medium),
             high: custom.high.or(default_budgets.high),
+            xhigh: custom.xhigh.or(default_budgets.xhigh),
+            max: custom.max.or(default_budgets.max),
         },
         None => default_budgets,
     };
     let min_output_tokens = MIN_OUTPUT_TOKENS;
     let min_thinking_tokens = 1024u64;
-    let level = clamp_reasoning(reasoning_level);
-    let level_budget = match level {
+    // Resolve the requested tier directly. Clamping first (the old
+    // `clamp_reasoning` call) mapped xhigh/max onto high, so both tiers sent
+    // high's budget and the selection was invisible upstream.
+    let level_budget = match reasoning_level {
         ModelThinkingLevel::Minimal => budgets.minimal,
         ModelThinkingLevel::Low => budgets.low,
         ModelThinkingLevel::Medium => budgets.medium,
-        ModelThinkingLevel::High | ModelThinkingLevel::Xhigh | ModelThinkingLevel::Max => {
-            budgets.high
-        }
+        ModelThinkingLevel::High => budgets.high,
+        ModelThinkingLevel::Xhigh => budgets.xhigh,
+        ModelThinkingLevel::Max => budgets.max,
         ModelThinkingLevel::Off => None,
     }
     .unwrap_or(min_thinking_tokens);
@@ -296,6 +311,85 @@ mod tests {
             effective_request_max_tokens(&anthropic, ModelThinkingLevel::High),
             32_000 + 16_384
         );
+    }
+
+    #[test]
+    fn every_tier_above_high_reaches_the_wire_with_its_own_budget() {
+        // The regression this guards: `adjust_max_tokens_for_thinking` used to
+        // clamp xhigh/max onto high BEFORE resolving the budget, so a caller
+        // selecting `max` sent high's 16_384 and the selection never reached
+        // the provider. Each tier must now resolve to a distinct token count.
+        let roomy = model("anthropic", "claude-sonnet-4-5", 1_000_000);
+        let budget_for = |level: ModelThinkingLevel| {
+            adjust_max_tokens_for_thinking(32_000, roomy.max_tokens, level, None)
+                .expect("roomy model")
+                .1
+        };
+        let high = budget_for(ModelThinkingLevel::High);
+        let xhigh = budget_for(ModelThinkingLevel::Xhigh);
+        let max = budget_for(ModelThinkingLevel::Max);
+        assert_eq!(high, 16_384);
+        assert!(
+            xhigh > high,
+            "xhigh budget {xhigh} must exceed high's {high}"
+        );
+        assert!(max > xhigh, "max budget {max} must exceed xhigh's {xhigh}");
+    }
+
+    #[test]
+    fn a_configured_budget_for_the_wider_tiers_is_honoured() {
+        // A caller that configures `max` explicitly must get exactly that,
+        // not the default ladder's value.
+        let roomy = model("anthropic", "claude-sonnet-4-5", 1_000_000);
+        let configured = ThinkingBudgets {
+            max: Some(100_000),
+            ..Default::default()
+        };
+        let (_, budget) = adjust_max_tokens_for_thinking(
+            1_000,
+            roomy.max_tokens,
+            ModelThinkingLevel::Max,
+            Some(&configured),
+        )
+        .expect("roomy model");
+        assert_eq!(budget, 100_000);
+    }
+
+    #[test]
+    fn a_fifty_thousand_output_ceiling_keeps_every_tier_distinct() {
+        // The shape a `models.json` entry takes when it wants the upper tiers
+        // to be addressable: maxTokens 50_000 against the default ladder. The
+        // model ceiling still binds the top tier (65_536 > 50_000), but every
+        // tier must send a different budget -- that is what makes the
+        // selection observable upstream at all.
+        let fifty = model("anthropic", "deepseek-v4.1-flash", 50_000);
+        let budget_for = |level: ModelThinkingLevel| {
+            adjust_max_tokens_for_thinking(50_000, fifty.max_tokens, level, None)
+                .expect("fifty-thousand ceiling is roomy")
+                .1
+        };
+        let sent: Vec<u64> = [
+            ModelThinkingLevel::Minimal,
+            ModelThinkingLevel::Low,
+            ModelThinkingLevel::Medium,
+            ModelThinkingLevel::High,
+            ModelThinkingLevel::Xhigh,
+            ModelThinkingLevel::Max,
+        ]
+        .into_iter()
+        .map(budget_for)
+        .collect();
+        // Strictly increasing from minimal through max: no two tiers alias.
+        for pair in sent.windows(2) {
+            assert!(
+                pair[1] > pair[0],
+                "tier budgets must increase: {sent:?}"
+            );
+        }
+        assert_eq!(sent[3], 16_384, "high keeps the historical 16_384");
+        assert_eq!(sent[4], 32_768, "xhigh gets its own 32_768");
+        // max asks 65_536; the 50_000 ceiling binds it to 50_000 - 1_024.
+        assert_eq!(sent[5], 48_976);
     }
 
     #[test]

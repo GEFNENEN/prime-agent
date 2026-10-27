@@ -524,6 +524,11 @@ pub fn stream_simple_anthropic(
     anthropic_options.base.max_tokens = Some(adjusted.0);
     anthropic_options.thinking_enabled = Some(true);
     anthropic_options.thinking_budget_tokens = Some(adjusted.1);
+    // Carry the requested tier as an effort too, so a budget-based route sends
+    // the caller's actual selection (`output_config.effort`) beside the token
+    // budget. The budget alone cannot express `high` vs `max` once the model's
+    // output ceiling binds both to the same number.
+    anthropic_options.effort = Some(map_thinking_level_to_effort(model, reasoning));
     stream_anthropic(model, context, Some(&anthropic_options))
 }
 

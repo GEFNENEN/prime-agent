@@ -126,6 +126,17 @@ pub(crate) fn build_params(
                         "display": display.as_str(),
                     }),
                 );
+                // A budget-based route has no adaptive `thinking` object to
+                // carry the selection, so the requested tier rides
+                // `output_config.effort` alongside the token budget. Servers
+                // that only understand `budget_tokens` ignore it; servers that
+                // understand the tier get the caller's actual choice instead of
+                // having it collapsed into the budget arithmetic. Without this
+                // the selection is unobservable upstream: every tier above
+                // `high` used to ship high's token count and nothing else.
+                if let Some(effort) = options.and_then(|options| options.effort) {
+                    params.insert("output_config".into(), json!({ "effort": effort.as_str() }));
+                }
             }
         } else if options.map(|options| options.thinking_enabled) == Some(Some(false))
             && !is_always_on_adaptive_thinking_model(&model.id)
@@ -152,7 +163,8 @@ mod tests {
     use super::build_params;
     use crate::providers::anthropic::{AnthropicEffort, AnthropicOptions};
     use crate::types::{
-        zero_model_cost, Context, Message, Model, ModelInput, UserMessage, UserMessageContent,
+        zero_model_cost, Context, Message, Model, ModelInput, ModelThinkingLevel, UserMessage,
+        UserMessageContent,
     };
     use serde_json::{json, Map};
 
@@ -210,15 +222,76 @@ mod tests {
         }
     }
 
-    /// Haiku 4.5 still takes budget-based thinking.
+    /// Haiku 4.5 still takes budget-based thinking. The requested tier now also
+    /// rides `output_config.effort` when the caller supplied one: a budget-based
+    /// route has no adaptive `thinking` object, so the token budget was the only
+    /// trace of the selection and every tier above `high` shipped the same
+    /// number.
     #[test]
-    fn haiku_4_5_keeps_budget_thinking() {
+    fn haiku_4_5_keeps_budget_thinking_and_carries_the_effort() {
         assert_eq!(
             thinking_params("claude-haiku-4-5"),
             (
                 json!({ "type": "enabled", "budget_tokens": 2048, "display": "summarized" }),
-                serde_json::Value::Null,
+                json!({ "effort": "medium" }),
             )
+        );
+    }
+
+    /// A budget-based anthropic-messages route on a non-Claude model. `max`
+    /// must reach the wire as an effort, because the budget arithmetic cannot
+    /// express it (the model's output ceiling binds `high` and `max` to the
+    /// same token count). This is the behaviour any route keeps when it stays
+    /// on `anthropic-messages`; `opencode-go` has since moved to
+    /// `openai-completions`, where the level travels as `reasoning_effort`.
+    #[test]
+    fn a_budget_route_sends_the_requested_max_as_an_effort() {
+        let model = Model {
+            id: "deepseek-v4.1-flash".into(),
+            name: "DeepSeek-V4.1-Flash".into(),
+            api: "anthropic-messages".into(),
+            provider: "opencode-go".into(),
+            base_url: "https://opencode.ai/zen/go".into(),
+            reasoning: true,
+            thinking_level_map: Some(
+                [
+                    (ModelThinkingLevel::Low, Some("low".to_string())),
+                    (ModelThinkingLevel::High, Some("high".to_string())),
+                    (ModelThinkingLevel::Max, Some("max".to_string())),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            input: vec![ModelInput::Text],
+            cost: zero_model_cost(),
+            context_window: 250_000,
+            max_tokens: 50_000,
+            max_tokens_explicit: true,
+            featured: None,
+            serving: None,
+            headers: None,
+            compat: None,
+        };
+        let context = Context {
+            system_prompt: None,
+            messages: vec![Message::User(UserMessage {
+                content: UserMessageContent::Text("Hi".into()),
+                timestamp: 1,
+                rest: Map::default(),
+            })],
+            tools: None,
+        };
+        let options = AnthropicOptions {
+            thinking_enabled: Some(true),
+            thinking_budget_tokens: Some(48_976),
+            effort: Some(AnthropicEffort::Max),
+            ..Default::default()
+        };
+        let params = build_params(&model, &context, false, Some(&options), None);
+        assert_eq!(
+            params.get("output_config"),
+            Some(&json!({ "effort": "max" })),
+            "a budget-based route must still name the requested tier: {params:?}"
         );
     }
 }
