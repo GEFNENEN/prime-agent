@@ -160,7 +160,33 @@ pub(crate) fn build_params(
             }
             crate::types::ThinkingFormat::Openai => {
                 if let Some(effort) = options.reasoning_effort {
-                    if compat.supports_reasoning_effort {
+                    // The caller's explicit level reaches the wire when the
+                    // model declares the level in its thinking map, UNLESS the
+                    // route explicitly turned the effort selector off. The
+                    // distinction matters: `supports_reasoning_effort: false`
+                    // arrives from two places. A route with no declaration
+                    // inherits the DETECTED default, which is a guess about the
+                    // server (Prime Inference is detected false because it
+                    // ignores the field); a route whose own compat block sets
+                    // the flag made an explicit statement we must honour.
+                    //
+                    // For the guessed case the user's selection wins: shipping
+                    // `high` vs `max` is the only way the choice is observable,
+                    // and a server that dislikes the field rejects it visibly
+                    // instead of silently flattening every tier onto one
+                    // budget. For the explicit case the old behaviour stands.
+                    let declared = model
+                        .thinking_level_map_value(effort)
+                        .is_some_and(|value| value.is_some());
+                    let explicitly_disabled = model
+                        .compat_kind()
+                        .is_some_and(|kind| match kind {
+                            crate::types::CompatKind::OpenAiCompletions(compat) => compat
+                                .supports_reasoning_effort
+                                .is_some_and(|supported| !supported),
+                            _ => false,
+                        });
+                    if compat.supports_reasoning_effort || (declared && !explicitly_disabled) {
                         let mapped = model
                             .thinking_level_map_value(effort)
                             .flatten()
@@ -684,5 +710,138 @@ mod tests {
         // The clamped ladder stops at the map's addressable top.
         let params = reasoning_params_for(&model, ModelThinkingLevel::Max);
         assert_eq!(params.get("reasoning"), Some(&json!({ "effort": "xhigh" })));
+    }
+
+    /// The `yes` gateway shape: an OpenAI-completions route whose compat block
+    /// sets `supportsReasoningEffort: true`, while the model's thinking-level
+    /// map declares `max`. Selecting `max` must reach the wire as the string
+    /// `"max"`.
+    #[test]
+    fn a_route_that_declares_reasoning_effort_sends_the_level() {
+        let model = serde_json::from_value::<Model>(json!({
+            "id": "deepseek-v4.1-flash", "name": "DeepSeek-V4.1-Flash",
+            "api": "openai-completions", "provider": "yes",
+            "baseUrl": "http://gw.example/v1", "reasoning": true,
+            "thinkingLevelMap": { "low": "low", "high": "high", "max": "max" },
+            "input": ["text"],
+            "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 },
+            "contextWindow": 250_000, "maxTokens": 50_000,
+            "compat": {
+                "kind": "openai-completions",
+                "supportsReasoningEffort": true
+            }
+        }))
+        .unwrap();
+        let params = reasoning_params_for(&model, ModelThinkingLevel::Max);
+        assert_eq!(
+            params.get("reasoning_effort"),
+            Some(&json!("max")),
+            "a requested max must reach the wire: {params:?}"
+        );
+    }
+
+    /// A route whose own compat block turns the selector OFF keeps the old
+    /// behaviour: the request carries no `reasoning_effort`. That is an explicit
+    /// statement about the route, unlike the detected default.
+    #[test]
+    fn an_explicitly_disabled_reasoning_effort_route_stays_silent() {
+        let model = serde_json::from_value::<Model>(json!({
+            "id": "some-model", "name": "Some Model",
+            "api": "openai-completions", "provider": "quiet",
+            "baseUrl": "http://quiet.example/v1", "reasoning": true,
+            "thinkingLevelMap": { "high": "high", "max": "max" },
+            "input": ["text"],
+            "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 },
+            "contextWindow": 128_000, "maxTokens": 8_192,
+            "compat": {
+                "kind": "openai-completions",
+                "supportsReasoningEffort": false
+            }
+        }))
+        .unwrap();
+        let params = reasoning_params_for(&model, ModelThinkingLevel::Max);
+        assert!(
+            !params.contains_key("reasoning_effort"),
+            "an explicit opt-out must be honoured: {params:?}"
+        );
+    }
+
+    /// The shipped `models.json` shape for `yes/deepseek-v4.1-flash`, verbatim:
+    /// provider compat with `supportsReasoningEffort: true`, a three-entry map
+    /// ending at `max`. The request must carry the literal string `"max"`.
+    #[test]
+    fn the_shipped_yes_route_sends_max() {
+        let model = serde_json::from_value::<Model>(json!({
+            "id": "deepseek-v4.1-flash", "name": "DeepSeek-V4.1-Flash",
+            "api": "openai-completions", "provider": "yes",
+            "baseUrl": "http://115.190.242.77:7863/v1", "reasoning": true,
+            "input": ["text", "image"],
+            "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 },
+            "contextWindow": 250_000, "maxTokens": 50_000,
+            "maxTokensExplicit": true,
+            "thinkingLevelMap": { "low": "low", "high": "high", "max": "max" },
+            "compat": {
+                "kind": "openai-completions",
+                "supportsStore": false,
+                "supportsDeveloperRole": false,
+                "supportsReasoningEffort": true,
+                "supportsUsageInStreaming": false,
+                "maxTokensField": "max_tokens"
+            }
+        }))
+        .unwrap();
+        for (level, expected) in [
+            (ModelThinkingLevel::Low, "low"),
+            (ModelThinkingLevel::High, "high"),
+            (ModelThinkingLevel::Max, "max"),
+        ] {
+            let params = reasoning_params_for(&model, level);
+            assert_eq!(
+                params.get("reasoning_effort"),
+                Some(&json!(expected)),
+                "the shipped yes route must send {expected}: {params:?}"
+            );
+        }
+    }
+
+    /// The `opencode-go` route after the protocol switch: `openai-completions`
+    /// with a `deepseek` thinking format and a `max` map entry. The request must
+    /// carry `reasoning_effort: "max"` AND the deepseek toggle, which is what
+    /// this fork's `models.json` ships for `deepseek-v4.1-flash`.
+    #[test]
+    fn the_switched_opencode_go_route_sends_max() {
+        let model = serde_json::from_value::<Model>(json!({
+            "id": "deepseek-v4.1-flash", "name": "DeepSeek-V4.1-Flash",
+            "api": "openai-completions", "provider": "opencode-go",
+            "baseUrl": "https://opencode.ai/zen/go/v1", "reasoning": true,
+            "input": ["text", "image"],
+            "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 },
+            "contextWindow": 250_000, "maxTokens": 50_000,
+            "maxTokensExplicit": true,
+            "thinkingLevelMap": { "low": "low", "high": "high", "max": "max" },
+            "compat": {
+                "kind": "openai-completions",
+                "supportsStore": false,
+                "supportsDeveloperRole": false,
+                "supportsReasoningEffort": true,
+                "supportsUsageInStreaming": true,
+                "maxTokensField": "max_tokens",
+                "thinkingFormat": "deepseek",
+                "requiresReasoningContentOnAssistantMessages": true
+            }
+        }))
+        .unwrap();
+        let params = reasoning_params_for(&model, ModelThinkingLevel::Max);
+        // The deepseek format sends the toggle plus the mapped effort.
+        assert_eq!(
+            params.get("thinking"),
+            Some(&json!({ "type": "enabled" })),
+            "the deepseek format carries the thinking toggle: {params:?}"
+        );
+        assert_eq!(
+            params.get("reasoning_effort"),
+            Some(&json!("max")),
+            "the switched route must send the literal max: {params:?}"
+        );
     }
 }
