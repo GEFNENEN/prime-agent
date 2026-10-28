@@ -659,7 +659,10 @@ pub fn build_layout(rows: &[crate::agents_view_forest::AgentsViewRow], width: us
         .max()
         .unwrap_or(0)
         .max(12);
-    let model_width = desired_model.min(32).min(available.saturating_sub(12));
+    // The column carries `provider / model:level`, so the ceiling has to fit the
+    // widest real pair: `opencode-go-hr / deepseek-v4.1-flash:max` is 41 cells,
+    // and the old 32 truncated every qualified row instead of the rare one.
+    let model_width = desired_model.min(44).min(available.saturating_sub(12));
     let name_width = (available.saturating_sub(model_width)).min(SESSION_NAME_COLUMN_MAX_CELLS);
     let detail_line = |cost: &str, age: &str| {
         format!(
@@ -804,7 +807,7 @@ mod tests {
         assert_eq!(summary["thinkingLevel"], json!("high"));
         assert_eq!(
             crate::agents_view_forest::session_model(&summary),
-            "mock-1:high"
+            "battery / mock-1:high"
         );
         let bare = vec![json!({ "id": "s3", "path": "/x/s3.jsonl", "messageCount": 3 })];
         let records = reconcile_unified_sessions(&[], &bare, None);
@@ -1057,6 +1060,51 @@ mod tests {
         assert!(layout.legend.contains("Model"));
         assert!(layout.legend.contains("Cost"));
         assert_eq!(layout.details["session:s1"].trim_end(), "$1.50");
+    }
+
+    /// The Model column now carries `provider / model:level`, which is wider than
+    /// a bare id. The ceiling has to fit the widest real pair on a normal
+    /// terminal, or every qualified row truncates instead of the rare one.
+    #[test]
+    fn the_model_column_fits_a_qualified_provider_model_pair() {
+        let widest = "opencode-go-hr / deepseek-v4.1-flash:max";
+        assert_eq!(str_width(widest), 40, "the cell this ceiling must fit");
+        let roster = vec![roster_entry(
+            "s1",
+            "running",
+            &json!({
+                "sessionId": "s1",
+                "lifecycle": "live",
+                "model": {"provider": "opencode-go-hr", "modelId": "deepseek-v4.1-flash"},
+                "thinkingLevel": "max",
+                "usage": { "cost": 0.5 },
+            }),
+        )];
+        let records = reconcile_unified_sessions(&roster, &[], None);
+        let rows = crate::agents_view_forest::build_rows::<std::collections::hash_map::RandomState>(
+            &records,
+            None,
+            &std::collections::HashSet::default(),
+            &std::collections::HashSet::default(),
+            &std::collections::HashMap::default(),
+            &std::collections::HashMap::default(),
+            None,
+        );
+        // An 80-column terminal is the ordinary case and must not truncate.
+        let layout = build_layout(&rows, 80);
+        assert!(
+            layout.model_width >= str_width(widest),
+            "80 cols must fit {widest:?}: got {}",
+            layout.model_width
+        );
+        // A narrow terminal still yields: the Model column takes what the name
+        // column can spare rather than pushing it off the row.
+        let narrow = build_layout(&rows, 60);
+        assert!(
+            narrow.model_width < str_width(widest),
+            "60 cols must shrink the Model column, not the Session name"
+        );
+        assert!(narrow.name_width >= 10, "the name column keeps a usable floor");
     }
 
     #[test]
