@@ -10,24 +10,41 @@ fn get_str<'a>(value: &'a Value, field: &str) -> Option<&'a str> {
         .filter(|s| !s.is_empty())
 }
 
-/// The model column text: the bare model id plus `:level` when a thinking level is active
-/// ("off" reads as noise and stays bare).
+/// The model column text: `provider / model-id`, plus `:level` when a thinking
+/// level is active ("off" reads as noise and stays bare).
+///
+/// The provider prefix matters for the same reason it does in the tray label:
+/// several providers serve the same model id, and a bare `deepseek-v4.1-flash`
+/// cannot say which one a session is on. A model id that already carries a
+/// `vendor/` prefix keeps it and stays bare — `internal/glm-5.3-fast` is an
+/// identifier, not a provider path, and prefixing it would read as two
+/// providers.
 pub(crate) fn session_model(summary: &Value) -> String {
     // Live workers publish the model object with `id`; seeded roster rows and saved-session
     // rows carry `modelId` (the persisted selector). Both read as the full model id.
-    let Some(id) = get_str(summary, "model").or_else(|| {
-        summary
-            .get("model")
+    let model = summary.get("model");
+    let id = get_str(summary, "model").or_else(|| {
+        model
             .and_then(|model| model.get("id").or_else(|| model.get("modelId")))
             .and_then(Value::as_str)
             .filter(|id| !id.is_empty())
-    }) else {
+    });
+    let Some(id) = id else {
         return "-".to_string();
     };
-    let bare = id.rsplit('/').next().unwrap_or(id).to_string();
+    let provider = model
+        .and_then(|model| model.get("provider"))
+        .and_then(Value::as_str)
+        .or_else(|| summary.get("provider").and_then(Value::as_str))
+        .filter(|provider| !provider.is_empty());
+    // An id with a path separator already names its origin.
+    let labelled = match provider {
+        Some(provider) if !id.contains('/') => format!("{provider} / {id}"),
+        _ => id.to_string(),
+    };
     match get_str(summary, "thinkingLevel") {
-        Some(level) if level != "off" => format!("{bare}:{level}"),
-        _ => bare,
+        Some(level) if level != "off" => format!("{labelled}:{level}"),
+        _ => labelled,
     }
 }
 
