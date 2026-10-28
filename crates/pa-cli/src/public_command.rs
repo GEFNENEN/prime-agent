@@ -189,7 +189,22 @@ pub fn handle_public_command(args: &[String]) -> PublicCommandResult {
         "mcp" => run_mcp(&rest),
         "update" => run_update(&rest),
         "model" => rewrite_nested_command("model", "list", "--list-models", &rest),
-        "session" => rewrite_nested_command("session", "export", "--export", &rest),
+        "session" => {
+            // `clean` is a second subcommand beside `export`, so the single
+            // `rewrite_nested_command` path (which rewrites to one internal
+            // flag) no longer covers the whole namespace.
+            if rest.first().map(String::as_str) == Some("clean") {
+                let code = match crate::session_clean::run(&rest[1..], &crate::config::get_agent_dir()) {
+                    Ok(code) => code,
+                    Err(error) => {
+                        eprintln!("Error: {error}");
+                        1
+                    }
+                };
+                return handled_with_exit(code);
+            }
+            rewrite_nested_command("session", "export", "--export", &rest)
+        }
         "prompt" => handled_with_exit(crate::prompt_command::run_prompt_command(&rest)),
         "factory" => handled_with_exit(crate::factory_command::run_factory_command(&rest)),
         "config" => {
