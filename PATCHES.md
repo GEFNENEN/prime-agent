@@ -5,7 +5,7 @@
 `git log main..custom`）。
 
 - 基线：`v0.10.2-beta.10`（上游 `c4c238ca0` 的 tag-only 提交，`main` 当前头）
-- 补丁数：**18**
+- 补丁数：**19**
 - 维护流程见 [MAINTAINING.md](MAINTAINING.md)
 
 | # | 提交 | 类型 | 摘要 |
@@ -28,6 +28,7 @@
 | 16 | `b9f39406d` | fix | 空回复重试前固定等 3 秒 |
 | 17 | `63d0d8c24` | fix | 托盘显示 provider 与配置的模型名 |
 | 18 | `27364d28d` | fix | 推理档位一路带到线上 |
+| 19 | `34d51cb83` | fix | `/speed` 开关持久化 |
 
 补丁之外还有文档与版本戳提交（`a7207133a`、`8a860c7d5`、`84706f55f`、
 `7186e2728`、`5e383efbc`、`15a825082`），以及两个尚未定性的修复：
@@ -361,3 +362,24 @@ compat 补 `thinkingFormat: deepseek`）；三个 provider 的 `deepseek-v4.1-fl
 因端口占用失败，改动前即失败）。新增 5 个测试钉住行为，其中
 `the_switched_opencode_go_route_sends_max` 断言报文含
 `reasoning_effort: "max"` 与 `thinking: {type: enabled}`。
+## 19. `/speed` 开关持久化（`34d51cb83`）
+
+**问题**：`/speed on` 只改内存字段，退出重开就没了。同类的 `chatDetail`（Ctrl+O）
+有持久化，`speed` 缺了那一半：`client_settings` trait 里根本没有 `speed_display`
+的读写口，初始化处硬编码 `speed_display_enabled: false`。
+
+**行为**：新增 `speedDisplay` 设置键（`settings.json` 全局作用域）。`/speed on|off`
+写入该键，客户端启动时读回。未设置读作关闭，与历史行为一致。
+
+**文件**：`crates/pa-core/src/settings/types.rs`（字段）、
+`crates/pa-core/src/settings/load.rs`（`KNOWN_FIELDS`）、
+`crates/pa-core/src/settings/manager.rs`（`get_speed_display`，读合并文档的
+getter 都在这里）、`crates/pa-core/src/settings/interactive_settings.rs`
+（`set_speed_display`）、`crates/pa-tui/src/client_settings.rs`（trait 默认实现）、
+`crates/pa-cli/src/client_settings.rs`（`setting!` 接线）、
+`crates/pa-tui/src/session_ui/stream.rs`（写入）、
+`crates/pa-tui/src/session_ui/lifecycle.rs`（启动读回）
+
+**验证**：`cargo test -p pa-core --lib settings::`（45 项通过，含新增
+`speed_display_persists_and_reads_back`，断言写入只动目标键、重载后读回为 true、
+再关掉读回为 false）。`cargo check --workspace --all-targets` 通过。
