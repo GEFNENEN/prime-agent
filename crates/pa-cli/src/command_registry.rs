@@ -252,13 +252,25 @@ restored after its snapshot was removed starts with an empty kernel namespace.",
     CommandSpec::new(&["model", "list"], "model list [search]", "List available models"),
     CommandSpec::new(
         &["session"],
-        "session export <file> [output]",
+        "session <export|clean>",
         "Manage saved sessions",
     ),
     CommandSpec::new(
         &["session", "export"],
         "session export <file> [output]",
         "Export a saved session to HTML",
+    ),
+    CommandSpec::new(
+        &["session", "clean"],
+        "session clean [--dry-run] [--include-named] [--min-age-hours N] [--json]",
+        "Delete saved sessions that never received a prompt",
+    )
+    .description(
+        "A launch that closes before the first prompt leaves a bootstrap-only \
+session file behind. This removes those and keeps everything else: any session \
+with a message or a slash-command record survives, as does a named session \
+(unless --include-named) and anything newer than --min-age-hours (default 1). \
+--dry-run prints the plan without deleting.",
     ),
     CommandSpec::new(&["config"], "config", "Configure package resources"),
     CommandSpec::new(
