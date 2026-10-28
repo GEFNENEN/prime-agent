@@ -703,10 +703,16 @@ pub fn default_refiner_call(
             // after the JSON-only instruction and the model would answer in prose;
             // ask such gateways to pass this call's system prompt through unchanged.
             // Unknown headers are ignored by ordinary providers.
-            stream_options.base.headers = Some(std::collections::HashMap::from([(
-                "X-WB2A-Prompt-Mode".to_string(),
-                "passthrough".to_string(),
-            )]));
+            //
+            // MERGE, never replace: the caller's headers carry the provider's own
+            // routing identity (upstream passes the session's merged team header
+            // here), and overwriting the map dropped them.
+            stream_options
+                .base
+                .headers
+                .get_or_insert_with(std::collections::HashMap::new)
+                .entry("X-WB2A-Prompt-Mode".to_string())
+                .or_insert_with(|| "passthrough".to_string());
             // refine's output is machine-parsed JSON, so a truncated reply is a
             // hard failure, and a request that carries no budget at all can be
             // cut short by a small provider default. Give a floor only when the
