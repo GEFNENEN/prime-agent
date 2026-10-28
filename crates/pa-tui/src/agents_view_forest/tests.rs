@@ -142,29 +142,58 @@ fn a_fork_of_a_child_stays_a_sibling_row() {
 #[test]
 fn session_model_reads_every_wire_shape() {
     let bare = json!({"model": "internal/glm-5.3-fast", "thinkingLevel": "high"});
-    assert_eq!(session_model(&bare), "glm-5.3-fast:high");
+    assert_eq!(session_model(&bare), "internal/glm-5.3-fast:high");
     let live = json!({
         "model": {"id": "internal/glm-5.3-fast", "name": "GLM", "provider": "prime-inference"},
         "thinkingLevel": "high",
     });
-    assert_eq!(session_model(&live), "glm-5.3-fast:high");
+    // An id with a path separator already names its origin.
+    assert_eq!(session_model(&live), "internal/glm-5.3-fast:high");
     let seeded = json!({
         "model": {"provider": "prime-inference", "modelId": "internal/glm-5.3-fast"},
         "thinkingLevel": "high",
     });
-    assert_eq!(session_model(&seeded), "glm-5.3-fast:high");
+    assert_eq!(session_model(&seeded), "internal/glm-5.3-fast:high");
     // "off" reads as noise: the bare model id, no suffix.
     let off = json!({
         "model": {"id": "internal/glm-5.3-fast"},
         "thinkingLevel": "off",
     });
-    assert_eq!(session_model(&off), "glm-5.3-fast");
+    assert_eq!(session_model(&off), "internal/glm-5.3-fast");
     assert_eq!(session_model(&json!({})), "-");
     assert_eq!(
         session_model(&json!({"model": {"provider": "p"}, "thinkingLevel": "high"})),
         "-",
         "an empty id stays empty — never a `p/`-style blob"
     );
+}
+
+/// The reason the column carries a provider at all: two providers serve the same
+/// model id, and a bare id cannot say which one a session is on.
+#[test]
+fn session_model_names_the_provider_for_a_shared_model_id() {
+    for provider in ["yes", "opencode-go", "opencode-go-hr"] {
+        let summary = json!({
+            "model": {"provider": provider, "modelId": "deepseek-v4.1-flash"},
+            "thinkingLevel": "max",
+        });
+        assert_eq!(
+            session_model(&summary),
+            format!("{provider} / deepseek-v4.1-flash:max")
+        );
+    }
+    // The live worker's shape (`id`) reads the same as the seeded one (`modelId`).
+    let live = json!({
+        "model": {"id": "deepseek-v4.1-flash", "name": "DeepSeek", "provider": "yes"},
+        "thinkingLevel": "off",
+    });
+    assert_eq!(session_model(&live), "yes / deepseek-v4.1-flash");
+    // A top-level provider is honoured when the model object omits it.
+    let flat = json!({
+        "provider": "yes",
+        "model": {"modelId": "deepseek-v4.1-flash"},
+    });
+    assert_eq!(session_model(&flat), "yes / deepseek-v4.1-flash");
 }
 
 /// The ONE line under a parent (the operator's 2026-09-28 merge): `1 subagent · 1 running`,
@@ -269,7 +298,7 @@ fn summary_rows_stay_count_only() {
         .iter()
         .find(|row| row.title == "worker one")
         .expect("child row");
-    assert_eq!(child.model, "glm-5.3-fast");
+    assert_eq!(child.model, "internal/glm-5.3-fast");
     let nested = rows
         .iter()
         .find(|row| row.kind == RowKind::SubagentSummary && row.depth == 2)
