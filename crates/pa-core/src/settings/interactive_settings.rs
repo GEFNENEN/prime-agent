@@ -383,6 +383,19 @@ impl SettingsManager {
         self.save_global_scope(&["chatDetail"])
     }
 
+    /// `speedDisplay`: unset reads as off — the `/speed` footer stays hidden
+    /// until the user turns it on. Persisted so `/speed on` survives a restart
+    /// instead of resetting on every launch. The read lives in `manager.rs`
+    /// beside the other merged-document getters.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the global settings scope cannot be saved.
+    pub fn set_speed_display(&mut self, enabled: bool) -> Result<()> {
+        self.global_mut().speed_display = Some(enabled);
+        self.save_global_scope(&["speedDisplay"])
+    }
+
     /// `factory.enabled` (the agent factory's opt-in gate): unset reads
     /// as disabled — the factory stays off until the user runs
     /// `/factory on`. The read is GLOBAL SCOPE ONLY, exactly the agent-dir
