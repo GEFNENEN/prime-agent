@@ -5,7 +5,7 @@
 `git log main..custom`）。
 
 - 基线：`v0.10.2-beta.10`（上游 `c4c238ca0` 的 tag-only 提交，`main` 当前头）
-- 补丁数：**19**
+- 补丁数：**20**
 - 维护流程见 [MAINTAINING.md](MAINTAINING.md)
 
 | # | 提交 | 类型 | 摘要 |
@@ -29,6 +29,7 @@
 | 17 | `63d0d8c24` | fix | 托盘显示 provider 与配置的模型名 |
 | 18 | `27364d28d` | fix | 推理档位一路带到线上 |
 | 19 | `34d51cb83` | fix | `/speed` 开关持久化 |
+| 20 | `1f3d3419d` | feat | 新增 session clean 清理空会话 |
 
 补丁之外还有文档与版本戳提交（`a7207133a`、`8a860c7d5`、`84706f55f`、
 `7186e2728`、`5e383efbc`、`15a825082`），以及两个尚未定性的修复：
@@ -383,3 +384,39 @@ getter 都在这里）、`crates/pa-core/src/settings/interactive_settings.rs`
 **验证**：`cargo test -p pa-core --lib settings::`（45 项通过，含新增
 `speed_display_persists_and_reads_back`，断言写入只动目标键、重载后读回为 true、
 再关掉读回为 false）。`cargo check --workspace --all-targets` 通过。
+## 20. 新增 `session clean` 清理空会话（`1f3d3419d`）
+
+**问题**：`prime-agent` 每次启动都创建会话文件，所以在第一个 prompt 之前关掉的启动会
+留下一个只有 bootstrap 记录的残file。它们不会自己消失，也不在任何列表里提示：本机
+136 个会话里有 82 个是这种，合计 60 KB，单个都不超过 1.3 KB。
+
+**判定**：按**记录类型**判断，不用字节阈值。一个会话为空，当且仅当它每一行都是
+bootstrap 记录（`session` / `model_change` / `thinking_level_change` /
+`service_tier_change` / `session_state`）；出现任意一条 `message` 或
+`custom_message` 就不是空。用大小阈值会误删——一行回复和裸 `/compact` 都比这些空
+文件还小。
+
+**三道保护**：`session_info` 命名的会话默认保留（`--include-named` 才删）；
+比 `--min-age-hours`（默认 1 小时）新的保留，避免误伤「刚启动还在等第一个 prompt」
+的会话；任何一行解析失败就把该文件标记为不可读并保留，绝不当作空。
+
+**用法**：
+```bash
+prime-agent session clean --dry-run      # 只列清单
+prime-agent session clean                # 执行
+prime-agent session clean --json         # 供脚本消费
+```
+
+**接线**：`session` 命名空间现在有 `export` 和 `clean` 两个子命令，
+`rewrite_nested_command`（把一个命名空间压成单个内部 flag）不再覆盖它，所以分发处
+多了一个分支。
+
+**文件**：`crates/pa-cli/src/session_clean.rs`（新增）、
+`crates/pa-cli/src/public_command.rs`、`crates/pa-cli/src/command_registry.rs`、
+`crates/pa-cli/src/lib.rs`
+
+**验证**：`cargo test -p pa-cli --lib`（295 项通过，含 8 个新增测试，覆盖：删空会话、
+保留一行消息、保留只有 `/compact` 的、保留命名会话、保留过新的、`--dry-run` 不落盘、
+坏行保留、选项解析）。本机实跑：136 → 54，删除 82 个（59.3 KB），保留 54 个
+（52 个有内容 + 2 个命名），54 个有内容会话字节数无变化。删除前已备份到
+`sessions-backup/empty-<时间戳>/`，82 个文件全部校验可解析。
