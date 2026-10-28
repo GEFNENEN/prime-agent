@@ -436,6 +436,10 @@ pub struct Settings {
     /// `chatDetail`: the conversation-detail level Ctrl+O cycles and persists
     /// ("overview"/"details"/"all"); `None` reads as the `overview` startup level.
     pub chat_detail: Option<String>,
+    /// `speedDisplay`: whether the `/speed` footer row is on. `None` reads as
+    /// off, the historic startup state; `/speed on` writes `true` here so the
+    /// row survives a restart instead of resetting each launch.
+    pub speed_display: Option<bool>,
     pub thinking_budgets: Option<ThinkingBudgetsSettings>,
     pub editor_padding_x: Option<u64>,
     pub autocomplete_max_visible: Option<u64>,

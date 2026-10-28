@@ -122,6 +122,12 @@ impl SessionUi {
             self.speed_stats = None;
             view.chrome.speed_text = None;
         }
+        // Persist so the row survives the next launch: `/speed on` is a
+        // preference, not a per-session probe. A store failure is not worth
+        // failing the command over -- the toggle already took effect here.
+        if let Some(settings) = &self.client_settings {
+            let _ = settings.set_speed_display(enabled);
+        }
         let status = if enabled {
             "Speed display on — footer shows output tok/s per model response and a session average"
         } else {

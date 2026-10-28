@@ -83,7 +83,13 @@ impl SessionUi {
             fullscreen_mouse: options.fullscreen_mouse,
             service_tier: None,
             pending_model_fallback_message: None,
-            speed_display_enabled: false,
+            // Read at construction: `/speed on` persists to the global settings
+            // store, so the row comes back on the next launch instead of
+            // resetting to off.
+            speed_display_enabled: options
+                .client_settings
+                .as_ref()
+                .is_some_and(|settings| settings.speed_display()),
             speed_stats: None,
             client_settings: options.client_settings.clone(),
             anthropic_subscription_warning_shown: false,
