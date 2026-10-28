@@ -207,6 +207,18 @@ pub trait ClientSettings: Send + Sync {
     ///
     /// Returns `Err` when the settings store fails.
     fn set_chat_detail(&self, detail: &str) -> Result<()>;
+    /// `speedDisplay` (default off): whether the `/speed` footer row is on.
+    fn speed_display(&self) -> bool {
+        false
+    }
+    /// Persists `speedDisplay` to the global scope.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err` when the settings store fails.
+    fn set_speed_display(&self, _enabled: bool) -> Result<()> {
+        anyhow::bail!("Speed display settings are unavailable")
+    }
     /// `warnings.anthropicExtraUsage` (TS default true).
     fn warnings_anthropic_extra_usage(&self) -> bool;
     /// Persists `warnings.anthropicExtraUsage` to the global scope.

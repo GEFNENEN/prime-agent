@@ -894,6 +894,13 @@ impl SettingsManager {
         self.merged.request_timing.unwrap_or(false)
     }
 
+    /// `speedDisplay`: unset means OFF — the `/speed` footer row is opt-in,
+    /// and `/speed on` writes the key so the choice survives a restart.
+    #[must_use]
+    pub fn get_speed_display(&self) -> bool {
+        self.merged.speed_display.unwrap_or(false)
+    }
+
     #[must_use]
     pub fn get_session_dir(&self) -> Option<std::path::PathBuf> {
         let session_dir = self.merged.session_dir.as_ref()?;
