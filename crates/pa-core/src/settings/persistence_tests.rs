@@ -48,6 +48,33 @@ fn chat_detail_save_changes_only_the_requested_setting() {
     );
 }
 
+/// `/speed on` is a preference, not a per-session probe: the write lands in the
+/// global document so the footer row is back on the next launch. It must also
+/// survive a reload (the read path `/speed` was missing before this existed).
+#[test]
+fn speed_display_persists_and_reads_back() {
+    let (storage, mut manager) = fixture(r#"{"theme":"light","pluginSetting":{"keep":true}}"#);
+    assert!(!manager.get_speed_display(), "unset reads as off");
+
+    manager.set_speed_display(true).unwrap();
+    assert_eq!(
+        document(storage.as_ref()),
+        json!({
+            "theme":"light", "pluginSetting":{"keep":true}, "speedDisplay":true
+        })
+    );
+    assert!(manager.get_speed_display());
+
+    // A fresh manager over the same store sees the persisted value: this is
+    // what makes the setting survive a restart rather than resetting at
+    // construction.
+    let reloaded = SettingsManager::from_storage(storage.clone());
+    assert!(reloaded.get_speed_display(), "reload keeps the row on");
+
+    manager.set_speed_display(false).unwrap();
+    assert!(!SettingsManager::from_storage(storage).get_speed_display());
+}
+
 #[test]
 fn stale_managers_preserve_other_writers_and_explicit_same_value_choices() {
     let (storage, mut first) =

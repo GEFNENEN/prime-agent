@@ -240,6 +240,13 @@ impl ClientSettings for CliClientSettings {
         set_warnings_anthropic_extra_usage,
         bool
     );
+    setting!(
+        speed_display,
+        set_speed_display,
+        get_speed_display,
+        set_speed_display,
+        bool
+    );
 
     /// `updateChannel`: the settings enum's wire value; unset reads as
     /// `None`.

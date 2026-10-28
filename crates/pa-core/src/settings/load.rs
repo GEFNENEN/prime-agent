@@ -53,6 +53,7 @@ const KNOWN_FIELDS: &[&str] = &[
     "allowedModels",
     "treeFilterMode",
     "chatDetail",
+    "speedDisplay",
     "thinkingBudgets",
     "editorPaddingX",
     "autocompleteMaxVisible",
