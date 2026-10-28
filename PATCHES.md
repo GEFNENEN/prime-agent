@@ -4,8 +4,8 @@
 补丁被移除或合并进上游后，对应条目直接删除，不保留历史记录（历史见
 `git log main..custom`）。
 
-- 基线：`v0.10.2-beta.10`（上游 `c4c238ca0` 的 tag-only 提交，`main` 当前头）
-- 补丁数：**20**
+- 基线：`v0.10.2`（上游 `ea9d9602e` 的正式版提交）
+- 补丁数：**21**
 - 维护流程见 [MAINTAINING.md](MAINTAINING.md)
 
 | # | 提交 | 类型 | 摘要 |
@@ -30,6 +30,7 @@
 | 18 | `27364d28d` | fix | 推理档位一路带到线上 |
 | 19 | `34d51cb83` | fix | `/speed` 开关持久化 |
 | 20 | `1f3d3419d` | feat | 新增 session clean 清理空会话 |
+| 21 | `79eb93266` | fix | refine 的 passthrough 头改为合并而非整表覆盖 |
 
 补丁之外还有文档与版本戳提交（`a7207133a`、`8a860c7d5`、`84706f55f`、
 `7186e2728`、`5e383efbc`、`15a825082`），以及两个尚未定性的修复：
@@ -60,6 +61,12 @@
 **opencode 会话身份**：由上游 `c4c238ca0` 承担。`session_id` 进入
 `StreamOptions`，`opencode_headers::apply` 为 `opencode`/`opencode-go`
 补 `User-Agent` 与 `x-opencode-session`，且 caller header 优先。
+
+**refine 的团队头（v0.10.2 引入，本仓已合并）**：上游 `1ee259820` 让
+`default_refiner_call` 接收会话合并后的请求头（Prime 的 `X-Prime-Team-ID`）
+并在请求上设置。我们那条 passthrough 补丁原本是整表赋值，会把它覆盖掉——
+rebase 在这里做了「机械合并、语义错误」的典型动作。已改为往现有表里
+`entry().or_insert`，两边意图都保住。
 
 ## 1. 顶栏显示 cwd（`9e4335a76`）
 
@@ -420,3 +427,25 @@ prime-agent session clean --json         # 供脚本消费
 坏行保留、选项解析）。本机实跑：136 → 54，删除 82 个（59.3 KB），保留 54 个
 （52 个有内容 + 2 个命名），54 个有内容会话字节数无变化。删除前已备份到
 `sessions-backup/empty-<时间戳>/`，82 个文件全部校验可解析。
+
+## 21. refine 的 passthrough 头改为合并（`79eb93266`）
+
+**问题**：上游 `v0.10.2`（`1ee259820`）让 `default_refiner_call` 接收会话合并后的
+请求头——Prime 的 `X-Prime-Team-ID` 走这条路——并在请求上设置它们。我们补丁 12 那条
+passthrough 是整表赋值：
+
+```rust
+stream_options.base.headers = Some(HashMap::from([("X-WB2A-Prompt-Mode", "passthrough")]));
+```
+
+于是每次 refine 调用都静默丢掉 provider 的路由身份。两处改动落在同一行、意图不同，
+正是 rebase 会「机械合并、语义错误」的那类冲突：文本不冲突，语义冲突。
+
+**行为**：改为往现有表里插入，且只在键不存在时写。
+
+**文件**：`crates/pa-core/src/session_engine/refine.rs`
+
+**验证**：`cargo test -p pa-core --lib refine`（60 项通过；两个失败
+`refine_request_is_identical_across_extraction_paths` 与
+`historical_refinement_is_read_only_on_trigger_not_in_hot_cache` 在 stash 掉本改动后
+同样失败，是上游 `v0.10.2` 的既有问题，与本补丁无关）。
