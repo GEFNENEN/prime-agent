@@ -5,7 +5,7 @@
 `git log main..custom`）。
 
 - 基线：`v0.10.2`（上游 `ea9d9602e` 的正式版提交）
-- 补丁数：**21**
+- 补丁数：**22**
 - 维护流程见 [MAINTAINING.md](MAINTAINING.md)
 
 | # | 提交 | 类型 | 摘要 |
@@ -31,6 +31,7 @@
 | 19 | `34d51cb83` | fix | `/speed` 开关持久化 |
 | 20 | `1f3d3419d` | feat | 新增 session clean 清理空会话 |
 | 21 | `79eb93266` | fix | refine 的 passthrough 头改为合并而非整表覆盖 |
+| 22 | `c897dd537` | fix | 多行粘贴在写边界被拆开时仍按粘贴处理 |
 
 补丁之外还有文档与版本戳提交（`a7207133a`、`8a860c7d5`、`84706f55f`、
 `7186e2728`、`5e383efbc`、`15a825082`），以及两个尚未定性的修复：
@@ -449,3 +450,32 @@ stream_options.base.headers = Some(HashMap::from([("X-WB2A-Prompt-Mode", "passth
 `refine_request_is_identical_across_extraction_paths` 与
 `historical_refinement_is_read_only_on_trigger_not_in_hot_cache` 在 stash 掉本改动后
 同样失败，是上游 `v0.10.2` 的既有问题，与本补丁无关）。
+
+## 22. 多行粘贴在写边界被拆开时仍按粘贴处理（`c897dd537`）
+
+**问题**：往输入框粘贴多行文本会一行一行发出去，最后一行留在框里。把「一次终端写入」
+识别成一次粘贴的判定，要求换行串**两侧都有文本**：
+
+```rust
+if newline_run_start > 0 { return true }   // 前面必须有字符
+```
+
+终端把一次 Ctrl+V 按内核读边界切开，切出来的块可能**以换行开头**或**整块就是换行**。
+这些块判定失败，退回逐事件派发，块里的每个 `Enter` 都提交一次 prompt。本仓早先那次
+修复只覆盖了「整块写入」的情形，所以症状会回来。
+
+**行为**：判据改为「含换行的写入就是粘贴，除非它恰好是一个换行（裸 `Enter` 按键）」。
+不含换行的写入仍是普通打字。编辑器的粘贴处理本来就会把多行折叠成
+`[paste #N +K lines]`，marker 不含换行，所以被识别出的粘贴不可能自我提交。
+
+**已知的过度匹配**：同一写入里「先打字再按回车」。以人类的打字速度，配合一个每次写入
+都即时 drain 的读取线程，这不会发生；万一发生，后果是出现一个 marker 而不是提交——
+方向与这个判定要防的错误相反。
+
+**文件**：`crates/pa-tui/src/input.rs`
+
+**验证**：`cargo test -p pa-tui --lib input`（47 项通过）。改写了一个既有测试
+（`a_forwarded_chunk_ends_with_its_marker`）：它用 `/l` + Enter 当样本，而那个样本
+现在被正确地当成粘贴；该测试断言的是 chunk-end marker，与按键形态无关，故去掉 Enter。
+`cargo test -p pa-tui --lib` 1514 通过 / 8 失败，8 个失败属 `autocomplete`、
+`incident_notices`、`session_open_error`，是上游 `v0.10.2` 的既有问题。
