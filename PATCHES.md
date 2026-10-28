@@ -5,7 +5,7 @@
 `git log main..custom`）。
 
 - 基线：`v0.10.2`（上游 `ea9d9602e` 的正式版提交）
-- 补丁数：**22**
+- 补丁数：**23**
 - 维护流程见 [MAINTAINING.md](MAINTAINING.md)
 
 | # | 提交 | 类型 | 摘要 |
@@ -32,6 +32,7 @@
 | 20 | `1f3d3419d` | feat | 新增 session clean 清理空会话 |
 | 21 | `79eb93266` | fix | refine 的 passthrough 头改为合并而非整表覆盖 |
 | 22 | `c897dd537` | fix | 多行粘贴在写边界被拆开时仍按粘贴处理 |
+| 23 | `f43f62944` | feat | agents view 的 Model 列显示 provider / model |
 
 补丁之外还有文档与版本戳提交（`a7207133a`、`8a860c7d5`、`84706f55f`、
 `7186e2728`、`5e383efbc`、`15a825082`），以及两个尚未定性的修复：
@@ -479,3 +480,28 @@ if newline_run_start > 0 { return true }   // 前面必须有字符
 现在被正确地当成粘贴；该测试断言的是 chunk-end marker，与按键形态无关，故去掉 Enter。
 `cargo test -p pa-tui --lib` 1514 通过 / 8 失败，8 个失败属 `autocomplete`、
 `incident_notices`、`session_open_error`，是上游 `v0.10.2` 的既有问题。
+
+## 23. agents view 的 Model 列显示 `provider / model`（`f43f62944`）
+
+**问题**：会话列表的 Model 列只渲染裸模型 id，`session_model` 还主动剥掉了 vendor 前缀
+（`id.rsplit('/').next()`）。多个 provider 提供同一个模型 id，
+`deepseek-v4.1-flash` 无法说明会话跑在哪一个上——与托盘标签加 provider 是同一个理由。
+
+**行为**：显示 `provider / model:level`。provider 取自模型对象（`model.provider`，实时
+worker 的形状）或 summary 顶层的 `provider`（seeded / saved 的形状）。**已经带
+`vendor/` 前缀的 id 保持裸写**：`internal/glm-5.3-fast` 是标识符而不是 provider 路径，
+写成 `prime-inference / internal/glm-5.3-fast` 会读成两个 provider。
+
+**列宽**：Model 列原上限 32 格，装不下
+`opencode-go-hr / deepseek-v4.1-flash:max`（40 格），会让每一条带 provider 的行都截断。
+提到 44：80 列终端能完整显示，窄终端仍优先收缩 Model 列而不是挤掉 Session 名。
+
+**文件**：`crates/pa-tui/src/agents_view_forest/summary.rs`、
+`crates/pa-tui/src/agents_view_state.rs`
+
+**验证**：`cargo test -p pa-tui --lib agents_view`（210 项通过）。新增两个测试：
+`session_model_names_the_provider_for_a_shared_model_id`（三个 provider 同一 id，
+以及实时/顶层两种 provider 形状）和
+`the_model_column_fits_a_qualified_provider_model_pair`（80 列完整、60 列收缩且保留
+Session 名列下限）。两处既有断言从裸 id 更新为带 provider 的形态。
+`cargo test -p pa-tui --lib` 1516 通过 / 8 失败，8 个失败为上游既有问题。
