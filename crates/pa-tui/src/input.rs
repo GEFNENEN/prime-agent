@@ -655,28 +655,39 @@ fn printable_text(event: &Event) -> Option<String> {
     }
 }
 
-/// TS `isRawMultilinePaste`: the chunk must carry text on both sides of a newline run — a leading
-/// or trailing Enter alone is ordinary key input.
+/// TS `isRawMultilinePaste`: one terminal write carrying pasted text rather than
+/// keystrokes.
+///
+/// The shape the detector must catch is a write whose events, replayed as
+/// keystrokes, would produce `Enter` presses — those submit the prompt, so a
+/// multi-line paste sent itself line by line and the last line stayed in the
+/// box. Two sources produce that:
+///
+/// * one write holding the whole paste (text, newline, more text);
+/// * one write holding a SLICE of it. A terminal splits a paste across writes
+///   wherever the OS read lands, so a slice can begin with the newline run or
+///   be nothing but the run.
+///
+/// The old rule required text on both sides of the run and missed every slice.
+/// The guard against over-matching is the lone-`Enter` case: a write that is
+/// exactly one newline is a key press, not a paste slice. Typing text and then
+/// pressing Enter in the same write is possible in principle but does not happen
+/// on a human timescale at paste speed, and the failure mode if it did is
+/// cosmetic (a marker instead of a submit), whereas the failure mode it prevents
+/// is a prompt sent in pieces.
 fn is_raw_multiline_paste(text: &str) -> bool {
-    let is_newline = |c: char| c == '\n' || c == '\r';
-    let chars: Vec<char> = text.chars().collect();
-    let mut newline_run_start: Option<usize> = None;
-    for (index, &c) in chars.iter().enumerate() {
-        if is_newline(c) {
-            if newline_run_start.is_none() {
-                newline_run_start = Some(index);
-            }
+    let mut newline_count = 0usize;
+    let mut other_count = 0usize;
+    for c in text.chars() {
+        if c == '\n' || c == '\r' {
+            newline_count += 1;
         } else {
-            // A non-newline after a run that follows a non-newline closes the match.
-            if let Some(run) = newline_run_start {
-                if run > 0 {
-                    return true;
-                }
-                newline_run_start = None;
-            }
+            other_count += 1;
         }
     }
-    false
+    // A lone newline (one `Enter` press) stays ordinary key input, and text with
+    // no newline at all is plain typing.
+    newline_count > 0 && !(newline_count == 1 && other_count == 0)
 }
 
 #[cfg(test)]
@@ -887,10 +898,14 @@ mod tests {
 
     #[test]
     fn a_forwarded_chunk_ends_with_its_marker() {
+        // Typing without a newline: each key dispatches, then the write boundary
+        // is marked. A chunk carrying a newline is a paste instead (see
+        // `multiline_shape_is_a_paste_wherever_the_read_boundary_fell`), so this
+        // fixture deliberately has none.
         let outputs = vec![
             GuardOutput::Event(key(KeyCode::Char('/'), KeyModifiers::NONE)),
             GuardOutput::Event(key(KeyCode::Char('l'), KeyModifiers::NONE)),
-            GuardOutput::Event(key(KeyCode::Enter, KeyModifiers::NONE)),
+            GuardOutput::Event(key(KeyCode::Char('s'), KeyModifiers::NONE)),
         ];
         let mut inputs = Vec::new();
         assert!(forward_chunk(outputs, true, &mut |input| {
@@ -902,7 +917,7 @@ mod tests {
             vec![
                 ReaderInput::Event(key(KeyCode::Char('/'), KeyModifiers::NONE)),
                 ReaderInput::Event(key(KeyCode::Char('l'), KeyModifiers::NONE)),
-                ReaderInput::Event(key(KeyCode::Enter, KeyModifiers::NONE)),
+                ReaderInput::Event(key(KeyCode::Char('s'), KeyModifiers::NONE)),
                 ReaderInput::ChunkEnd,
             ]
         );
@@ -920,17 +935,34 @@ mod tests {
     }
 
     #[test]
-    fn multiline_shape_needs_text_on_both_sides() {
+    fn multiline_shape_is_a_paste_wherever_the_read_boundary_fell() {
+        // Whole pastes.
         assert!(is_raw_multiline_paste("alpha\nbeta\ngamma"));
         assert!(is_raw_multiline_paste("alpha\n\n\nbeta"));
         assert!(is_raw_multiline_paste("a\nb\n"));
         // CR from the terminal and CRLF chunks fold the same way.
         assert!(is_raw_multiline_paste("alpha\rbeta"));
         assert!(is_raw_multiline_paste("alpha\r\nbeta"));
-        // A lone Enter — even several — is ordinary key input.
+
+        // The regression: a terminal splits one Ctrl+V wherever it likes, so a
+        // chunk can carry the newline run at an edge. Those used to dispatch
+        // per event and every Enter submitted the prompt.
+        assert!(
+            is_raw_multiline_paste("alpha\n"),
+            "a chunk ending in the newline is still a paste"
+        );
+        assert!(
+            is_raw_multiline_paste("\nalpha"),
+            "a chunk starting with the newline is still a paste"
+        );
+        assert!(
+            is_raw_multiline_paste("alpha\nbeta\n"),
+            "trailing newline after a real paste"
+        );
+
+        // A lone Enter is ordinary key input, and so is text without a newline.
         assert!(!is_raw_multiline_paste("\n"));
-        assert!(!is_raw_multiline_paste("alpha\n"));
-        assert!(!is_raw_multiline_paste("\nalpha"));
+        assert!(!is_raw_multiline_paste("\r"));
         assert!(!is_raw_multiline_paste("alpha"));
         assert!(!is_raw_multiline_paste(""));
     }
