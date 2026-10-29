@@ -1104,7 +1104,10 @@ mod tests {
             narrow.model_width < str_width(widest),
             "60 cols must shrink the Model column, not the Session name"
         );
-        assert!(narrow.name_width >= 10, "the name column keeps a usable floor");
+        assert!(
+            narrow.name_width >= 10,
+            "the name column keeps a usable floor"
+        );
     }
 
     #[test]

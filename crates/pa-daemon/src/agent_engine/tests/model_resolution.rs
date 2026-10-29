@@ -1391,11 +1391,10 @@ fn an_explicit_scope_with_no_matches_does_not_warn_about_an_excluded_default() {
     );
 }
 
-
 /// A direct-call seam (a slash command, compaction, refinement) reads the
 /// session model and then reaches the provider itself: the target's auth
 /// headers must therefore ride on the model it hands back, or a provider
-/// routing on a required header answers 400 (opencode-go: MissingSessionID).
+/// routing on a required header answers 400 (opencode-go: `MissingSessionID`).
 #[test]
 fn session_model_carries_the_target_headers() {
     let dir = tempfile::TempDir::new().unwrap();
@@ -1403,7 +1402,7 @@ fn session_model_carries_the_target_headers() {
     write_custom_provider_models_json(&agent_dir, "http://127.0.0.1:9");
     let engine = AgentSessionEngine::new(AgentEngineConfig {
         cwd: dir.path().to_path_buf(),
-        agent_dir: agent_dir.clone(),
+        agent_dir,
         provider: Some("battery".to_string()),
         model: Some("mock-1".to_string()),
         api_key: None,
@@ -1420,7 +1419,10 @@ fn session_model_carries_the_target_headers() {
     let mut model = engine.resolve_registry_model().expect("resolved model");
     assert!(model.headers.is_none(), "resolution alone carries none");
     model.headers = None;
-    *engine.provider_target.write().expect("provider target lock") =
+    *engine
+        .provider_target
+        .write()
+        .expect("provider target lock") =
         Some(pa_core::session_engine::provider_adapter::ProviderTarget {
             api_key: None,
             model,
@@ -1432,8 +1434,7 @@ fn session_model_carries_the_target_headers() {
         });
     let live = engine.session_model().expect("session model");
     assert_eq!(
-        live
-            .headers
+        live.headers
             .as_ref()
             .and_then(|headers| headers.get("x-opencode-session"))
             .map(String::as_str),

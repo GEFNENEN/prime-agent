@@ -438,17 +438,16 @@ impl AgentSessionEngine {
                                     continue;
                                 }
                                 // Still empty: never end the turn
-                                // silently �� surface a visible warning, and
+                                // silently —— surface a visible warning, and
                                 // for a subagent tell the parent so the run is
                                 // re-tasked instead of idling unseen.
                                 emit(EngineEvent::CustomMessage(empty_reply_warning(
                                     stalled_run_subagent,
                                 )));
                                 if stalled_run_subagent
-                                    && !self.stalled_run_announced.swap(
-                                        true,
-                                        std::sync::atomic::Ordering::SeqCst,
-                                    )
+                                    && !self
+                                        .stalled_run_announced
+                                        .swap(true, std::sync::atomic::Ordering::SeqCst)
                                 {
                                     let notice = self
                                         .stalled_run_notice
@@ -459,16 +458,12 @@ impl AgentSessionEngine {
                                         // A failed delivery must not silence the
                                         // child for good: reopen the gate so the
                                         // next stall can try again.
-                                        if notice(
-                                            EMPTY_REPLY_STALLED_PARENT_NOTICE.to_string(),
-                                        )
-                                        .await
-                                        .is_err()
+                                        if notice(EMPTY_REPLY_STALLED_PARENT_NOTICE.to_string())
+                                            .await
+                                            .is_err()
                                         {
-                                            self.stalled_run_announced.store(
-                                                false,
-                                                std::sync::atomic::Ordering::SeqCst,
-                                            );
+                                            self.stalled_run_announced
+                                                .store(false, std::sync::atomic::Ordering::SeqCst);
                                         }
                                     }
                                 }
@@ -744,7 +739,7 @@ fn is_empty_content(content: &[pa_agent::types::AssistantContent]) -> bool {
     !content.iter().any(|part| match part {
         pa_agent::types::AssistantContent::Text(text) => !text.text.trim().is_empty(),
         pa_agent::types::AssistantContent::ToolCall(_) => true,
-        _ => false,
+        pa_agent::types::AssistantContent::Thinking(_) => false,
     })
 }
 

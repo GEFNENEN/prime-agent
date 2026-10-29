@@ -381,10 +381,7 @@ mod tests {
         .collect();
         // Strictly increasing from minimal through max: no two tiers alias.
         for pair in sent.windows(2) {
-            assert!(
-                pair[1] > pair[0],
-                "tier budgets must increase: {sent:?}"
-            );
+            assert!(pair[1] > pair[0], "tier budgets must increase: {sent:?}");
         }
         assert_eq!(sent[3], 16_384, "high keeps the historical 16_384");
         assert_eq!(sent[4], 32_768, "xhigh gets its own 32_768");

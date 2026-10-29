@@ -253,11 +253,11 @@ async fn ensure_kernel_venv(
         // record is written last, so a killed bootstrap leaves a working venv
         // with no `.bootstrap-version`. Rebuilding would mean removing a
         // directory other workers are executing out of.
-        if venv.exists() && venv::adopt_unrecorded_venv(&python_str, &venv, &runtime_identity).is_ok()
+        if venv.exists()
+            && venv::adopt_unrecorded_venv(&python_str, &venv, &runtime_identity).is_ok()
+            && kernel_ready(&python_str, &venv, &runtime_identity, python_skills)
         {
-            if kernel_ready(&python_str, &venv, &runtime_identity, python_skills) {
-                return Ok(python);
-            }
+            return Ok(python);
         }
         if kernel_base_ready(&python_str, &venv, &runtime_identity) {
             let uv = ensure_uv()?;

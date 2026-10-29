@@ -371,7 +371,12 @@ mod tests {
     }
 
     fn parse(args: &[&str]) -> Result<Options, UsageError> {
-        parse_options(&args.iter().map(|arg| (*arg).to_string()).collect::<Vec<_>>())
+        parse_options(
+            &args
+                .iter()
+                .map(|arg| (*arg).to_string())
+                .collect::<Vec<_>>(),
+        )
     }
 
     #[test]
@@ -482,7 +487,14 @@ mod tests {
         collect_targets(root, Duration::ZERO, &mut targets);
         let names: Vec<String> = targets
             .iter()
-            .map(|target| target.path.file_name().unwrap().to_string_lossy().to_string())
+            .map(|target| {
+                target
+                    .path
+                    .file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .to_string()
+            })
             .collect();
         assert_eq!(names, vec!["kernel-state.dill".to_string()]);
     }

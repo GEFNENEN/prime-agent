@@ -178,14 +178,12 @@ pub(crate) fn build_params(
                     let declared = model
                         .thinking_level_map_value(effort)
                         .is_some_and(|value| value.is_some());
-                    let explicitly_disabled = model
-                        .compat_kind()
-                        .is_some_and(|kind| match kind {
-                            crate::types::CompatKind::OpenAiCompletions(compat) => compat
-                                .supports_reasoning_effort
-                                .is_some_and(|supported| !supported),
-                            _ => false,
-                        });
+                    let explicitly_disabled = model.compat_kind().is_some_and(|kind| match kind {
+                        crate::types::CompatKind::OpenAiCompletions(compat) => compat
+                            .supports_reasoning_effort
+                            .is_some_and(|supported| !supported),
+                        _ => false,
+                    });
                     if compat.supports_reasoning_effort || (declared && !explicitly_disabled) {
                         let mapped = model
                             .thinking_level_map_value(effort)
