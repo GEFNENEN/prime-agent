@@ -71,12 +71,15 @@ pub(crate) fn request_reader_stop() {
 }
 
 /// One input unit for the paste-aware reader: a parsed terminal event, a mouse report decoded from
-/// a reassembled escape sequence, or a coalesced marker-less keystroke burst.
+/// a reassembled escape sequence, or a bracketed paste.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum ReaderInput {
     Event(Event),
     Mouse(crate::mouse::MouseEvent),
     BurstPaste(String),
+    /// A bracketed paste's complete body: `ESC[200~ ... ESC[201~` with the markers stripped. The
+    /// guard assembles it because a Windows console delivers the markers as ordinary key presses.
+    Paste(String),
     /// The end of one terminal write: every input of the chunk was delivered before it. Not sent
     /// while the kitty probe shares crossterm's reader lock (the write boundary is unknown then).
     ChunkEnd,
@@ -325,26 +328,31 @@ fn burst_text(outputs: &[GuardOutput]) -> Option<(String, usize)> {
                 text.push_str(&printable_text(event)?);
                 presses += 1;
             }
-            // A reassembled report breaks the burst like a parsed mouse event.
-            GuardOutput::Mouse(_) => return None,
+            // A reassembled report breaks the burst like a parsed mouse event, and a bracketed
+            // paste is its own unit: the markers and the collected body are not keystroke text.
+            GuardOutput::Mouse(_)
+            | GuardOutput::PasteStart
+            | GuardOutput::PasteBody(_)
+            | GuardOutput::PasteEnd => return None,
         }
     }
     Some((text, presses))
 }
 
 /// Deliver one drained round to the surface: a whole-write burst that reconstructs to marker-less
-/// multi-line text coalesces into one [`ReaderInput::BurstPaste`]; everything else passes the TS
-/// dispatch filters and forwards input by input. Returns `false` when the surface stopped the
-/// reader.
+/// multi-line text coalesces into one [`ReaderInput::BurstPaste`]; a bracketed paste's collected
+/// body becomes one [`ReaderInput::Paste`]; everything else passes the TS dispatch filters and
+/// forwards input by input. Returns `false` when the surface stopped the reader.
 fn forward(outputs: Vec<GuardOutput>, on_input: &mut dyn FnMut(ReaderInput) -> bool) -> bool {
     if let Some((text, _)) = burst_text(&outputs).filter(|(text, _)| is_raw_multiline_paste(text)) {
         return on_input(ReaderInput::BurstPaste(text));
     }
     // The dispatch filters run after the guard — a reassembled sequence can complete mid-round, and
     // its synthesized form must pass them like a parsed event. Mouse reports keep their stream
-    // slots.
+    // slots, and a paste's body is one unit the filters never see.
     let mut inputs = Vec::with_capacity(outputs.len());
     let mut key_run: Vec<Event> = Vec::new();
+    let mut open_paste: Option<String> = None;
     for output in outputs {
         match output {
             GuardOutput::Event(event) => key_run.push(event),
@@ -355,6 +363,26 @@ fn forward(outputs: Vec<GuardOutput>, on_input: &mut dyn FnMut(ReaderInput) -> b
                         .map(ReaderInput::Event),
                 );
                 inputs.push(ReaderInput::Mouse(report));
+            }
+            GuardOutput::PasteStart => {
+                inputs.extend(
+                    filter_enhanced_key_events(std::mem::take(&mut key_run))
+                        .into_iter()
+                        .map(ReaderInput::Event),
+                );
+                open_paste = Some(String::new());
+            }
+            GuardOutput::PasteBody(text) => {
+                if let Some(body) = open_paste.as_mut() {
+                    body.push_str(&text);
+                }
+            }
+            GuardOutput::PasteEnd => {
+                // The guard keeps collecting across rounds, so a `PasteEnd`
+                // without an open body here means the start shipped in an
+                // earlier round; emit what this round collected.
+                let body = open_paste.take().unwrap_or_default();
+                inputs.push(ReaderInput::Paste(body));
             }
         }
     }
