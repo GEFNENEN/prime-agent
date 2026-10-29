@@ -5,8 +5,11 @@
 `git log main..custom`）。
 
 - 基线：`v0.10.2`（上游 `ea9d9602e` 的正式版提交）
-- 补丁数：**23**
+- 补丁数：**31**
 - 维护流程见 [MAINTAINING.md](MAINTAINING.md)
+
+表格以**提交标题**为主键、hash 只在括号里作参考：rebase 会重写 hash，
+按标题找永远能定位到当前提交，按 hash 找会在同步后失效。
 
 | # | 提交 | 类型 | 摘要 |
 | --- | --- | --- | --- |
@@ -33,18 +36,32 @@
 | 21 | `79eb93266` | fix | refine 的 passthrough 头改为合并而非整表覆盖 |
 | 22 | `c897dd537` | fix | 多行粘贴在写边界被拆开时仍按粘贴处理 |
 | 23 | `f43f62944` | feat | agents view 的 Model 列显示 provider / model |
+| 24 | `885e386e1` | fix | 用户消息回显改为纯文本，不再吞字符 |
+| 25 | `8458466b1` | fix | 清掉 fork 的 CI 门（fmt / clippy / 乱码注释） |
+| 26 | `1333d6e81` | fix | 单独的 `>` 保持字面显示（APPEND 续跑命令） |
+| 27 | `c9f73f124` | fix | RPC 的 lease 探测移出 tokio 运行时 |
+| 28 | `d4806c1c9` | fix | RPC 会话接入心跳与阈值自动压缩 |
+| 29 | `26b5d9957` | fix | daemon 把 provider 头贴到 `Model` 上给直连接缝用 |
+| 30 | `db1efe00a` | fix | refine 请求保持机器可解析，失败时透出 provider 原话 |
+| 31 | `521f5d685` | fix | refine 的空回复在解析错误里点名 |
 
 补丁之外还有文档与版本戳提交（`a7207133a`、`8a860c7d5`、`84706f55f`、
-`7186e2728`、`5e383efbc`、`15a825082`），以及两个尚未定性的修复：
+`7186e2728`、`5e383efbc`、`15a825082`），它们随 rebase 改写 hash，按标题找。
 
-- `8c7b1dd85` / `0581b7fef`（refine 的机器可解析与空回复诊断）——保留。
-  上游 `c4c238ca0` 之后 `default_refiner_call` 多了 `session_id` 参数，
-  我们的改动加在函数体内，位置不冲突。
-- `1e9266975`（daemon 把 provider 头贴到 `Model` 上给直连接缝用）——**待定**。
-  上游 `c4c238ca0` 已用 `StreamOptions.session_id` + `opencode_headers::apply`
-  覆盖了同样的 400 `MissingSessionID` 场景（摘要、refine、分支摘要都带 id
-  且走 SSE）。两者机制不同、可以共存，但我们的可能已经多余。需要一次
-  真实 `/refine` 调用确认后再决定删除。
+`1e9266975`（daemon 把 provider 头贴到 `Model` 上，现为补丁 29）**已定性为正式
+补丁，不是多余的**：上游 `c4c238ca0` 的 `opencode_headers::apply` 只在 provider
+是 `opencode`/`opencode-go` 时补 `x-opencode-session`，且**要求 `session_id`
+先进入 stream options**；而直连接缝（slash 命令、压缩、refine、图像路由）根本
+不经过 stream options，拿不到那个头。两者入口不同，不重叠。
+
+补丁 26–31 是补录的历史条目：它们一直在 `custom` 上（均为 HEAD 的祖先），但此前
+没进本清单，导致 rebase 时没人知道有这么几处需要重新应用或验证。其中
+`d4806c1c9`（补丁 28）新增了 257 行——`rpc/cron.rs`、`rpc/compaction.rs` 两个
+新模块加一个调度器——体量大于清单里一半的条目，风险最高。
+
+**这六条目前只有上面表格里的一行，没有下面的展开章节和验证记录**（下面 ## 1–25 只
+覆盖补丁 1–25）。rebase 到这几条时按标题重放，并各自补一次验证——在补齐之前，
+d4806c1c9 的实际行为没有任何测试证据。
 
 ---
 
@@ -220,7 +237,7 @@ prime-agent clean-kernel-state [--days <n>] [--dry-run] [--json]
 
 ## 13. 停滞子代理重新派活 + 重试提示按回合隔离（`c1ff59958`）
 
-**问题 A**：补丁 13 的重试仍失败时，顶层会话会显示警告行，但子代理只会变
+**问题 A**：补丁 12 的重试仍失败时，顶层会话会显示警告行，但子代理只会变
 为 idle。子代理仅在 **settle**（worker 队列清空）时由父代理收到
 `CompletedWithoutReply`；常驻子代理空回复后不触发 settle，父代理永远等不到
 结果，用户看到子代理"默默停住"。
@@ -247,11 +264,11 @@ prime-agent clean-kernel-state [--days <n>] [--dry-run] [--json]
 连续空回复告警、子代理通知父代理、残留提示不泄漏）；
 `cargo test -p pa-core retry_nudge --lib`（3 项）。
 
-**限制**：同补丁 13，`-p` 模式不经过 daemon 路径，此项仅对 TUI 生效。
+**限制**：补丁 12/13 的空回复重试与停滞通知都走 `pa-daemon` 的 `AgentSessionEngine`，`-p` 打印模式和 `--mode rpc` 用的都是 `pa-cli/print_runtime.rs` 的 `HeadlessEngine`，不经过它——这两项的 TUI 之外入口都没有这些保护。
 
 ## 14. 停滞通知只发给父代理一次（`99e5e75a0`）
 
-**问题**：补丁 14 的通知无条件发送。子代理每开始一个新 turn 又空回复时都会再发
+**问题**：补丁 13 的通知无条件发送。子代理每开始一个新 turn 又空回复时都会再发
 一次，父代理收到通知后回消息、子代理再跑一轮又空又发——形成正反馈，父代理被
 同一句话刷屏，即使该子代理已被从 roster 删除。
 
@@ -291,7 +308,7 @@ worker 的 kernel python 在该目录里运行，删除就会以"拒绝访问"�
 
 ## 16. 空回复重试前固定等 3 秒（`b9f39406d`）
 
-**问题**：补丁 13 的重试是立即重发。空回复多由 provider 瞬时抖动引起，立刻重试
+**问题**：补丁 12 的重试是立即重发。空回复多由 provider 瞬时抖动引起，立刻重试
 往往撞上同一个抖动，等于白耗掉唯一一次重试。
 
 **行为**：重试前固定等待 3 秒（`EMPTY_REPLY_RETRY_DELAY_MS`）。用固定值而非指数
@@ -433,7 +450,7 @@ prime-agent session clean --json         # 供脚本消费
 ## 21. refine 的 passthrough 头改为合并（`79eb93266`）
 
 **问题**：上游 `v0.10.2`（`1ee259820`）让 `default_refiner_call` 接收会话合并后的
-请求头——Prime 的 `X-Prime-Team-ID` 走这条路——并在请求上设置它们。我们补丁 12 那条
+请求头——Prime 的 `X-Prime-Team-ID` 走这条路——并在请求上设置它们。我们早先那条
 passthrough 是整表赋值：
 
 ```rust
@@ -505,3 +522,66 @@ worker 的形状）或 summary 顶层的 `provider`（seeded / saved 的形状�
 `the_model_column_fits_a_qualified_provider_model_pair`（80 列完整、60 列收缩且保留
 Session 名列下限）。两处既有断言从裸 id 更新为带 provider 的形态。
 `cargo test -p pa-tui --lib` 1516 通过 / 8 失败，8 个失败为上游既有问题。
+
+## 24. 用户消息回显改为纯文本（`885e386e1`）
+
+**问题**：提交后的用户消息块走 markdown 渲染，之后又把这个块里所有 span 的样式
+统一改写成 `userMessageText` 一种颜色。也就是说 **markdown 产生的粗体/斜体/删除线
+全被抹掉**，只剩「吞分隔符」这一半行为：编辑器里写的是 `__init__.py`，回显成了
+`init.py`。
+
+**实测丢失清单**（改前，用户消息块）：`__init__.py`→`init.py`、`_private`→`private`、
+`2*3*4`→`234`、`x = 2 * 3 * 4`→`x = 2  3  4`、`~~del~~`→`del`、两个反引号→空、
+`` `code` ``→`code`、`#`/`##`→空行、`# comment`→`comment`、`---`→分隔线、
+`> a`/`>>`/`>=`→`│ a`/`│ >`/`│ =`、`\*`→`*`、`[a](b)`→`a (b)`、
+`说明：_下划线_ 很重要`→下划线消失。共 22 项。
+
+注意 `snake_case_name`、`MAX_TOKENS`、`1_000_000` 本来是对的——CommonMark 有词内
+下划线规则。出错的是**词边界上的**下划线，也就是 `__init__`、`__pycache__` 这类，
+正是之前那次「`_` 不显示」的实际场景。
+
+**行为**：回显按字面排版（按宽度折行，一个源行一行），保留两项能力——`@path` /
+`--flag` 仍通过既有的 prompt-token mask 高亮；裸 URL 仍带 OSC 8 区域，终端里可点。
+**输入的字符一个都不会被消费**。URL 识别复用 markdown inline 渲染器用的同一套 GFM
+`url` 语法（`autolink.rs` 里把 backpedal 抽成共享的 `backpedal_range`），所以
+`see https://x.dev/a.` 只链接到 `.dev/a`，句号留在文本里。
+
+**行数一致性**：`user_block_row_count` 改成调用与绘制同一个 `wrap_user_text`，
+布局不会错位。
+
+**取舍**：用户消息里的 markdown 链接语法（`[a](b)`）不再被解释成「标签 + 链接」，
+而是原样显示。这是刻意的——回显的契约是「显示编辑器里实际写的字符」。
+
+**验证**：`cargo test -p pa-tui --lib chat::`（27 项通过）。新增
+`user_block_never_interprets_markdown`（24 个回归形状逐字符比对）。两个 view 测试
+原本断言「用户消息的相对链接按所属视图 cwd 解析」，该路径已按设计移除，改为在
+**assistant 消息**上断言，保住 cwd 解析这条契约本身。
+
+## 25. 清掉 fork 的 CI 门（`8458466b1`）
+
+**问题**：merge gate 是 `cargo fmt --all --check` +
+`cargo clippy --workspace --all-targets -- -D warnings`，两条都不过。
+
+- **fmt**：33 处 diff / 16 个文件，全部是本 fork 新增或改动的行（各文件的上游版本
+  我用 `git show upstream/main:<file>` 复核过，都是干净的）。
+- **clippy**（在 CI 固定的 1.98.1 上）：`map_or(false, ..)` 4 处（应为
+  `is_ok_and`，因为 `get_shell_config` 返回 `Result`）、`retry_nudge.rs` 的通配
+  分支、`empty_reply.rs` 3 处 `push_str(&format!(..))`、`clipboard.rs` 的
+  const 位置、`prompt_commands.rs` 缺 `# Panics`、`model_resolution.rs` 的文档
+  反引号与冗余 clone、`bootstrap/mod.rs` 可折叠 `if`、`session_clean.rs`
+  两个分支相同的 `if`（原文两侧都打印 `""`，属于缺陷残留，dry-run 提示本就在
+  下方单独打印）。
+- **乱码**：`turn/model.rs` 里两个 U+FFFD，原文应是破折号。全仓受版本控制的
+  文本文件扫过，只此一处。
+
+**工具链陷阱（下次评审注意）**：本地是 1.99.1，直接用它会报 **264** 条告警，
+其中 **242** 条是 1.99 新加进 pedantic 的 `assert!` 空值判定 lint，全部落在
+本 fork 没碰过的文件里。按 CI 固定的 1.98.1 复跑只剩 18 条，修完为 0 错误。
+**判断这道门必须用 1.98.1**（`rustup toolchain install 1.98.1 --component clippy`）。
+
+**验证**：1.98.1 下 `cargo fmt --all --check` 干净、
+`cargo clippy --workspace --all-targets -- -D warnings` 零错误。
+整体测试与既有基线一致（`pa-cli` 295/0，`pa-ai` 1 项端口占用，`pa-tui` 8 项，
+`pa-core` 41 项环境/上游失败）。顺带清掉了测试污染产生的
+`crates/pa-core/C:Users1...resolve-retry-<pid>` 垃圾文件。
+
