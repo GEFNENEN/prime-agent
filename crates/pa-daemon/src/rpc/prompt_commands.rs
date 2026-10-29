@@ -25,6 +25,10 @@ use super::protocol::{self, ResponseData};
 /// # Errors
 /// Returns the admission error (a missing message, a refused turn) and the admitted session
 /// command's own error.
+///
+/// # Panics
+/// Panics when the provider-target lock is poisoned (a holder panicked while
+/// writing the live target); the state is unrecoverable at that point.
 pub async fn prompt(state: &Arc<RpcState>, payload: &Value) -> Result<ResponseData, String> {
     let message = payload
         .get("message")

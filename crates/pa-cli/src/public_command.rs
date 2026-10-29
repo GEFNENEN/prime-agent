@@ -194,13 +194,14 @@ pub fn handle_public_command(args: &[String]) -> PublicCommandResult {
             // `rewrite_nested_command` path (which rewrites to one internal
             // flag) no longer covers the whole namespace.
             if rest.first().map(String::as_str) == Some("clean") {
-                let code = match crate::session_clean::run(&rest[1..], &crate::config::get_agent_dir()) {
-                    Ok(code) => code,
-                    Err(error) => {
-                        eprintln!("Error: {error}");
-                        1
-                    }
-                };
+                let code =
+                    match crate::session_clean::run(&rest[1..], &crate::config::get_agent_dir()) {
+                        Ok(code) => code,
+                        Err(error) => {
+                            eprintln!("Error: {error}");
+                            1
+                        }
+                    };
                 return handled_with_exit(code);
             }
             rewrite_nested_command("session", "export", "--export", &rest)

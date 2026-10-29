@@ -253,7 +253,8 @@ mod tests {
             .update_guard
             .expect("bare updateGuard loads");
         assert!(
-            held.refusal().is_some_and(|text| text.contains("updateGuard")),
+            held.refusal()
+                .is_some_and(|text| text.contains("updateGuard")),
             "an unset hold still holds and names the key"
         );
 

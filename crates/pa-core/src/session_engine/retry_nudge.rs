@@ -69,7 +69,7 @@ mod tests {
         match message {
             AgentMessage::Standard(Message::User(user)) => match &user.content {
                 UserContent::Text(text) => text.clone(),
-                _ => panic!("expected text content"),
+                UserContent::Parts(_) => panic!("expected text content"),
             },
             _ => panic!("expected a standard user message"),
         }

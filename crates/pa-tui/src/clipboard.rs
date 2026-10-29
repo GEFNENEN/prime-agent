@@ -464,10 +464,10 @@ mod tests {
         use std::os::windows::process::CommandExt;
         // The real clipboard needs an interactive desktop session and the
         // test clobbers whatever the user copied: opt in explicitly.
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
         if std::env::var_os("PRIME_AGENT_CLIPBOARD_TESTS").is_none() {
             return;
         }
-        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
         for text in ["复制测试 done 🎉 完成", "plain ascii text 123"] {
             assert!(
                 pipe_to_hidden("cmd", &["/d", "/s", "/c", "chcp 65001>nul & clip"], text),
@@ -483,7 +483,10 @@ mod tests {
                 .creation_flags(CREATE_NO_WINDOW)
                 .output()
                 .expect("powershell.exe runs");
-            assert!(read_back.status.success(), "Get-Clipboard fails: {read_back:?}");
+            assert!(
+                read_back.status.success(),
+                "Get-Clipboard fails: {read_back:?}"
+            );
             let got = String::from_utf8(read_back.stdout).expect("utf8 output");
             assert_eq!(got, text, "the copy must round-trip without mojibake");
         }
