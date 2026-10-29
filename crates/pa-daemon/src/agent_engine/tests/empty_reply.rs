@@ -45,32 +45,34 @@ fn read_request(listener: &TcpListener) -> (TcpStream, String) {
 
 fn respond_sse(stream: &mut TcpStream, text: Option<&str>) {
     let mut frames = String::new();
-    frames.push_str(&format!(
-        "data: {}\n\n",
+    let chunk = |delta: Value| {
         json!({
             "id": "empty-reply-test", "object": "chat.completion.chunk", "created": 1,
             "model": "mock-1", "choices": [{"index": 0,
-                "delta": {"role": "assistant"}, "finish_reason": null}]
+                "delta": delta, "finish_reason": null}]
         })
-    ));
+    };
+    let _ = std::fmt::Write::write_fmt(
+        &mut frames,
+        format_args!("data: {}\n\n", chunk(json!({"role": "assistant"}))),
+    );
     if let Some(text) = text {
-        frames.push_str(&format!(
+        let _ = std::fmt::Write::write_fmt(
+            &mut frames,
+            format_args!("data: {}\n\n", chunk(json!({"content": text}))),
+        );
+    }
+    let _ = std::fmt::Write::write_fmt(
+        &mut frames,
+        format_args!(
             "data: {}\n\n",
             json!({
                 "id": "empty-reply-test", "object": "chat.completion.chunk", "created": 1,
                 "model": "mock-1", "choices": [{"index": 0,
-                    "delta": {"content": text}, "finish_reason": null}]
+                    "delta": {}, "finish_reason": "stop"}]
             })
-        ));
-    }
-    frames.push_str(&format!(
-        "data: {}\n\n",
-        json!({
-            "id": "empty-reply-test", "object": "chat.completion.chunk", "created": 1,
-            "model": "mock-1", "choices": [{"index": 0,
-                "delta": {}, "finish_reason": "stop"}]
-        })
-    ));
+        ),
+    );
     frames.push_str("data: [DONE]\n\n");
     write!(
         stream,
@@ -95,7 +97,7 @@ fn empty_reply_engine(
                     "apiKey": "sk-empty-reply-test",
                     "models": [{
                         "id": "mock-1", "name": "empty reply",
-                        "api": "openai-completions", "contextWindow": 128000, "maxTokens": 4096
+                        "api": "openai-completions", "contextWindow": 128_000, "maxTokens": 4096
                     }]
                 }
             }

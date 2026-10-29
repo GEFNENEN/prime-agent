@@ -73,9 +73,7 @@ impl TurnHook {
         }
         Some(TurnHook {
             command: command.to_string(),
-            timeout_ms: settings
-                .timeout_ms
-                .unwrap_or(DEFAULT_TURN_HOOK_TIMEOUT_MS),
+            timeout_ms: settings.timeout_ms.unwrap_or(DEFAULT_TURN_HOOK_TIMEOUT_MS),
             state: Arc::new(std::sync::Mutex::new(TurnHookState::default())),
         })
     }
@@ -106,21 +104,19 @@ impl TurnHook {
         let command = self.command.clone();
         let timeout_ms = self.timeout_ms;
         let state = Arc::clone(&self.state);
-        Arc::new(
-            move |messages: Vec<AgentMessage>, signal: AbortSignal| {
-                let command = command.clone();
-                let state = Arc::clone(&state);
-                let inner = Arc::clone(&inner);
-                Box::pin(async move {
-                    let pending = lock_state(&state).pending.take();
-                    if let Some(pending) = pending {
-                        let injection = run_command(&command, timeout_ms, &pending).await;
-                        lock_state(&state).injection = injection;
-                    }
-                    inner(messages, signal).await
-                })
-            },
-        )
+        Arc::new(move |messages: Vec<AgentMessage>, signal: AbortSignal| {
+            let command = command.clone();
+            let state = Arc::clone(&state);
+            let inner = Arc::clone(&inner);
+            Box::pin(async move {
+                let pending = lock_state(&state).pending.take();
+                if let Some(pending) = pending {
+                    let injection = run_command(&command, timeout_ms, &pending).await;
+                    lock_state(&state).injection = injection;
+                }
+                inner(messages, signal).await
+            })
+        })
     }
 
     /// Note an admitted turn: the next request's transform runs the hook
@@ -183,10 +179,7 @@ async fn run_command(command: &str, timeout_ms: u64, turn: &PendingTurn) -> Opti
         }
         Err(_elapsed) => {
             // The dropped future reaps the child (`kill_on_drop`).
-            tracing::debug!(
-                timeout_ms,
-                "turn hook timed out; injecting nothing"
-            );
+            tracing::debug!(timeout_ms, "turn hook timed out; injecting nothing");
             return None;
         }
     };
@@ -246,7 +239,10 @@ impl AgentSession {
 /// the configured shell and falls back to `ComSpec`.
 #[cfg(unix)]
 pub(super) fn hidden_shell_args(command: &str) -> (String, Vec<String>) {
-    ("bash".to_string(), vec!["-c".to_string(), command.to_string()])
+    (
+        "bash".to_string(),
+        vec!["-c".to_string(), command.to_string()],
+    )
 }
 
 #[cfg(windows)]
@@ -259,13 +255,21 @@ pub(super) fn hidden_shell_args(command: &str) -> (String, Vec<String>) {
     let comspec = std::env::var("ComSpec").unwrap_or_else(|_| "cmd.exe".to_string());
     (
         comspec,
-        vec!["/d".to_string(), "/s".to_string(), "/c".to_string(), command.to_string()],
+        vec![
+            "/d".to_string(),
+            "/s".to_string(),
+            "/c".to_string(),
+            command.to_string(),
+        ],
     )
 }
 
 #[cfg(not(any(unix, windows)))]
 pub(super) fn hidden_shell_args(command: &str) -> (String, Vec<String>) {
-    ("sh".to_string(), vec!["-c".to_string(), command.to_string()])
+    (
+        "sh".to_string(),
+        vec!["-c".to_string(), command.to_string()],
+    )
 }
 
 /// Build the async command through the platform shell with
@@ -296,9 +300,8 @@ mod tests {
     /// test payloads must speak that shell's quoting.
     #[cfg(windows)]
     fn shell_is_bash() -> bool {
-        crate::platform::get_shell_config(None).map_or(false, |config| {
-            config.shell.to_ascii_lowercase().contains("bash")
-        })
+        crate::platform::get_shell_config(None)
+            .is_ok_and(|config| config.shell.to_ascii_lowercase().contains("bash"))
     }
 
     /// A command that prints the given JSON on stdout in the configured
@@ -332,9 +335,7 @@ mod tests {
         let transform = hook.wrap_transform(Arc::new(|messages, _signal| {
             Box::pin(async move { Ok(messages) })
         }));
-        let messages = transform(Vec::new(), AbortSignal::default())
-            .await
-            .unwrap();
+        let messages = transform(Vec::new(), AbortSignal::default()).await.unwrap();
         assert!(messages.is_empty(), "the transform passes messages through");
     }
 
@@ -349,7 +350,10 @@ mod tests {
         assert_eq!(parse_additional_context(""), None);
         assert_eq!(parse_additional_context("   \n"), None);
         assert_eq!(parse_additional_context("not json"), None);
-        assert_eq!(parse_additional_context(r#"{"hookSpecificOutput":{}}"#), None);
+        assert_eq!(
+            parse_additional_context(r#"{"hookSpecificOutput":{}}"#),
+            None
+        );
         assert_eq!(
             parse_additional_context(r#"{"hookSpecificOutput":{"additionalContext":"   "}}"#),
             None
@@ -381,13 +385,11 @@ mod tests {
     fn blank_commands_and_absent_settings_disable_the_hook() {
         assert!(TurnHook::from_settings(None).is_none());
         assert!(TurnHook::from_settings(Some(&TurnHookSettings::default())).is_none());
-        assert!(
-            TurnHook::from_settings(Some(&TurnHookSettings {
-                command: Some("   ".to_string()),
-                timeout_ms: None,
-            }))
-            .is_none()
-        );
+        assert!(TurnHook::from_settings(Some(&TurnHookSettings {
+            command: Some("   ".to_string()),
+            timeout_ms: None,
+        }))
+        .is_none());
     }
 
     #[test]
