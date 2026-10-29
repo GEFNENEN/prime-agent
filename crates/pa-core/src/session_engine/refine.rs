@@ -715,11 +715,18 @@ pub fn default_refiner_call(
                 .or_insert_with(|| "passthrough".to_string());
             // refine's output is machine-parsed JSON, so a truncated reply is a
             // hard failure, and a request that carries no budget at all can be
-            // cut short by a small provider default. Give a floor only when the
-            // model declares no output limit; never override a declared one.
+            // cut short by a small provider default. `build_base_options` already
+            // resolves that: it falls back to `default_request_max_tokens(model)`,
+            // which passes an explicitly configured `maxTokens` through unchanged
+            // and caps a catalog value at the request cap. Pinning a floor here
+            // would *override* that resolution — `base.max_tokens` is always
+            // `None` at this point (`SimpleStreamOptions::from_base` starts from
+            // `..Default::default()`), so `get_or_insert` always fired and a model
+            // declaring 50 000 output tokens silently got 8 192, making the
+            // truncation this comment worries about more likely, not less.
+            //
             // (The 2026-10-22 outage was NOT this: that reply was a rejected
             // request, not a truncated one — see the bail below.)
-            stream_options.base.max_tokens.get_or_insert(8_192);
             let reply = pa_ai::complete_simple(&model, &context, Some(stream_options)).await?;
             // 空产出诊断：思考型模型把预算全花在 reasoning 上时，`content` 是空的、
             // `stopReason` 是 `length`；refine 只把文本交给解析器，那句「没返回 JSON

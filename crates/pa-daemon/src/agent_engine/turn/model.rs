@@ -748,7 +748,21 @@ const EMPTY_REPLY_STALLED_PARENT_NOTICE: &str = "I stopped without producing a r
 /// True when a finished assistant message carries nothing the user can act
 /// on: no non-blank text and no tool call. Thinking-only replies count as
 /// empty (providers stop cleanly on them and the run would end silently).
+///
+/// A failed round trip is NOT an empty reply. `agent_loop` returns `Ok(())`
+/// for a provider failure and parks the error in an assistant row whose
+/// content is empty and whose `stop_reason` is `Error` (or `Aborted` when the
+/// user cancelled). Retrying that row re-sends the same doomed request, costs
+/// another round trip, and then reports the outcome as "the model returned an
+/// empty reply" — hiding the provider's actual error, which is exactly the
+/// misdiagnosis the refine path was fixed for. Those reasons fall out here.
 fn is_empty_reply(message: &pa_agent::types::AssistantMessage) -> bool {
+    if matches!(
+        message.stop_reason,
+        pa_agent::types::StopReason::Error | pa_agent::types::StopReason::Aborted
+    ) {
+        return false;
+    }
     is_empty_content(&message.content)
 }
 
@@ -815,5 +829,57 @@ mod tests {
             content(serde_json::json!({"type": "thinking", "thinking": "monologue"})),
             content(serde_json::json!({"type": "text", "text": ""})),
         ]));
+    }
+
+    fn message(
+        stop_reason: &str,
+        content: Vec<AssistantContent>,
+    ) -> pa_agent::types::AssistantMessage {
+        let value = serde_json::json!({
+            "api": "openai-completions",
+            "provider": "p",
+            "model": "m",
+            "usage": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0,
+                      "totalTokens": 0, "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0}},
+            "stopReason": stop_reason,
+            "timestamp": 0,
+            "content": [],
+        });
+        let mut message: pa_agent::types::AssistantMessage =
+            serde_json::from_value(value).expect("assistant message");
+        message.content = content;
+        message
+    }
+
+    #[test]
+    fn a_failed_round_trip_is_never_an_empty_reply() {
+        // `agent_loop` reports a provider failure as `Ok(())` with the error
+        // parked in a content-less row; only `stop_reason` distinguishes it
+        // from a model that genuinely answered nothing. Retrying the former
+        // re-sends the doomed request and then blames the model.
+        for reason in ["error", "aborted"] {
+            assert!(
+                !super::is_empty_reply(&message(reason, Vec::new())),
+                "a {reason} row must not enter the empty-reply retry"
+            );
+        }
+    }
+
+    #[test]
+    fn a_clean_stop_with_no_content_is_still_an_empty_reply() {
+        // The retry the patch exists for: the provider stops cleanly (a
+        // thinking-only turn) and the run would end with nothing to show.
+        assert!(super::is_empty_reply(&message("stop", Vec::new())));
+        assert!(super::is_empty_reply(&message(
+            "stop",
+            vec![content(serde_json::json!({
+                "type": "thinking", "thinking": "monologue"}))]
+        )));
+        // A real answer or a tool call is not empty, whatever the reason.
+        assert!(!super::is_empty_reply(&message(
+            "toolUse",
+            vec![content(serde_json::json!({
+                "type": "toolCall", "id": "c", "name": "bash", "arguments": {}}))]
+        )));
     }
 }
