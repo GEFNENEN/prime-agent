@@ -327,7 +327,7 @@ pub(crate) fn render_user_block_with_style(
     let content_width = width.saturating_sub(4).max(1);
     let body = theme.fg_style(ThemeColor::UserMessageText);
     let mask = geometry::user_mask(text);
-    let rendered = crate::markdown::render_markdown(&mask.text, content_width, md);
+    let rendered = wrap_user_text(&mask.text, content_width);
     let mut rows: Vec<Line> = Vec::new();
     let blank = vec![Span::styled(" ".repeat(width), bg)];
     rows.push(blank.clone());
@@ -340,9 +340,9 @@ pub(crate) fn render_user_block_with_style(
     }
     for line in rendered {
         let mut row: Line = vec![Span::styled("  ".to_string(), bg)];
-        // The user block colors everything `userMessageText` on the block background;
-        // markdown structure (wrapping) is kept, its own colors are not, and the link
-        // affordance survives the restyle.
+        // The user block colors everything `userMessageText` on the block background.
+        // User text is literal: no markdown construct may consume a typed character
+        // (`__init__.py`, `2*3*4`, `~~x~~`), so the runs are restyled in place.
         let restyled: Line = line
             .into_iter()
             .map(|span| {
@@ -369,6 +369,71 @@ pub(crate) fn render_user_block_with_style(
         crate::osc133::mark_end(last);
     }
     rows
+}
+
+/// Lay user text out as literal rows: one row per source line, wrapped at
+/// `width`. Nothing here interprets markdown, so every typed character
+/// survives (`_`, `*`, `~`, `` ` ``, `#`, `>`, `\`, `[`), matching what the
+/// editor showed before submission.
+///
+/// The one affordance kept is a clickable URL: a bare `http(s)://`/`www.` run
+/// gets an OSC 8 region so the terminal link still works without the markdown
+/// link syntax that would have eaten the surrounding brackets.
+pub(crate) fn wrap_user_text(text: &str, width: usize) -> Vec<Line> {
+    let width = width.max(1);
+    let mut out: Vec<Line> = Vec::new();
+    for source in text.split('\n') {
+        let line = linkify_user_line(source);
+        out.extend(crate::width::wrap_line(&line, width));
+    }
+    out
+}
+
+/// One source line with its bare URLs wrapped in OSC 8 regions. The visible
+/// text is unchanged (character for character); only invisible escapes are
+/// added around each URL run.
+fn linkify_user_line(source: &str) -> Line {
+    let chars: Vec<char> = source.chars().collect();
+    if chars.is_empty() {
+        return vec![Span::raw(String::new())];
+    }
+    let mut out: Line = Vec::new();
+    let mut plain = String::new();
+    let mut i = 0usize;
+    while i < chars.len() {
+        let at_boundary = i == 0 || chars[i - 1].is_whitespace() || chars[i - 1] == '(';
+        if at_boundary {
+            if let Some(token) = crate::autolink::bare_url_run(&chars, i) {
+                let consumed = token.len;
+                let label: String = chars[i..i + consumed].iter().collect();
+                if !plain.is_empty() {
+                    out.push(Span::raw(std::mem::take(&mut plain)));
+                }
+                // The OSC 8 target is the URL as typed (`www.` gains a scheme so
+                // the terminal can open it); no visible bracket is appended, so
+                // the typed characters stay exactly as the user wrote them.
+                let href = if label.starts_with("www.") {
+                    format!("http://{label}")
+                } else {
+                    label.clone()
+                };
+                let href = crate::hyperlinks::rewrite_drive_path(&href);
+                out.push(Span::raw(format!(
+                    "{}{label}{}",
+                    crate::hyperlinks::osc8_open(&href),
+                    crate::hyperlinks::OSC8_CLOSE
+                )));
+                i += consumed;
+                continue;
+            }
+        }
+        plain.push(chars[i]);
+        i += 1;
+    }
+    if !plain.is_empty() {
+        out.push(Span::raw(plain));
+    }
+    out
 }
 
 /// One assistant message: a leading spacer when a visible body exists, markdown

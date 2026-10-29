@@ -72,18 +72,7 @@ pub(crate) fn bare_token(src: &str) -> Option<AutolinkToken> {
     }
     let scheme = caps.get(1)?.as_str().to_string();
     let matched = caps.get(0)?.as_str();
-    // The loop walks marked's fixpoint as (start, end) ranges over the one matched slice
-    // instead of re-copying the string each pass, so a long trailing-punctuation run peels
-    // without an allocation per peeled character.
-    let mut start = 0;
-    let mut end = matched.len();
-    while let Ok(Some(m)) = BACKPEDAL.find(&matched[start..end]) {
-        if m.start() == 0 && m.end() == end - start {
-            break;
-        }
-        start += m.start();
-        end = start + m.end() - m.start();
-    }
+    let (start, end) = backpedal_range(matched);
     let text = &matched[start..end];
     let href = if scheme == "www." {
         format!("http://{text}")
@@ -95,6 +84,24 @@ pub(crate) fn bare_token(src: &str) -> Option<AutolinkToken> {
         text: text.to_string(),
         href,
     })
+}
+
+/// marked's `_backpedal` fixpoint as a byte range over one matched url: strip
+/// the trailing punctuation run, keeping balanced parens. The loop walks
+/// (start, end) ranges over the one matched slice instead of re-copying the
+/// string each pass, so a long trailing-punctuation run peels without an
+/// allocation per peeled character.
+fn backpedal_range(matched: &str) -> (usize, usize) {
+    let mut start = 0;
+    let mut end = matched.len();
+    while let Ok(Some(m)) = BACKPEDAL.find(&matched[start..end]) {
+        if m.start() == 0 && m.end() == end - start {
+            break;
+        }
+        start += m.start();
+        end = start + m.end() - m.start();
+    }
+    (start, end)
 }
 
 /// Cheap per-position gate for the gfm `url` rule: the rule can only match when its
@@ -127,6 +134,45 @@ pub(crate) fn bare_candidate(bytes: &[char], i: usize, line_has_at: bool) -> boo
 
 fn is_local_part(c: char) -> bool {
     c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '+' | '-')
+}
+
+/// A bare URL run at `at`, for a surface that renders text literally (the user
+/// message echo): the same gfm `url` grammar the markdown inline renderer uses,
+/// minus the email alternative, so a typed URL becomes clickable without the
+/// renderer having to interpret markdown around it.
+///
+/// Returns the run's length in chars. The run never includes trailing
+/// punctuation (the shared backpedal rule), so `see https://x.dev/a.` links
+/// `https://x.dev/a` and leaves the period in the text.
+pub(crate) fn bare_url_run(bytes: &[char], at: usize) -> Option<UrlRun> {
+    for prefix in ["https://", "http://", "www."] {
+        let case_insensitive = prefix != "www.";
+        if !starts_with(bytes, at, prefix, case_insensitive) {
+            continue;
+        }
+        let rest: String = bytes[at..].iter().collect();
+        let caps = BARE.captures(&rest).ok().flatten()?;
+        // The email alternative cannot fire for these prefixes (no `@` group),
+        // but a defensive skip keeps the two run shapes from mixing.
+        if caps.get(2).is_some() {
+            return None;
+        }
+        let matched = caps.get(0)?.as_str();
+        let (start, end) = backpedal_range(matched);
+        let trimmed = &matched[start..end];
+        if trimmed.is_empty() {
+            return None;
+        }
+        return Some(UrlRun {
+            len: trimmed.chars().count(),
+        });
+    }
+    None
+}
+
+/// One bare URL's length in chars.
+pub(crate) struct UrlRun {
+    pub len: usize,
 }
 
 fn starts_with(bytes: &[char], i: usize, prefix: &str, ignore_case: bool) -> bool {
