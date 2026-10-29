@@ -1545,7 +1545,7 @@ async fn an_admitted_turn_runs_the_turn_hook_into_the_system_prompt() {
             // Git Bash resolves, `cmd.exe` otherwise).
             let payload = r#"{"hookSpecificOutput":{"additionalContext":"HOOKED"}}"#;
             let is_bash = crate::platform::get_shell_config(None)
-                .map_or(false, |config| config.shell.to_ascii_lowercase().contains("bash"));
+                .is_ok_and(|config| config.shell.to_ascii_lowercase().contains("bash"));
             if is_bash {
                 format!("printf '%s' '{payload}'")
             } else {
@@ -1606,7 +1606,6 @@ async fn an_admitted_turn_runs_the_turn_hook_into_the_system_prompt() {
     );
 }
 
-
 /// The configured `stopHook` reaches the real run path: finishing a run
 /// writes the dcode-format adapter transcript and runs the hook command
 /// with the `{session_id, transcript_path, cwd}` payload — without
@@ -1637,9 +1636,12 @@ async fn an_agent_end_writes_back_through_the_stop_hook() {
         #[cfg(windows)]
         {
             let is_bash = crate::platform::get_shell_config(None)
-                .map_or(false, |config| config.shell.to_ascii_lowercase().contains("bash"));
+                .is_ok_and(|config| config.shell.to_ascii_lowercase().contains("bash"));
             if is_bash {
-                format!("cat > '{}'", capture.display().to_string().replace('\\', "/"))
+                format!(
+                    "cat > '{}'",
+                    capture.display().to_string().replace('\\', "/")
+                )
             } else {
                 format!("more > \"{}\"", capture.display())
             }
@@ -1666,10 +1668,10 @@ async fn an_agent_end_writes_back_through_the_stop_hook() {
     engine.agent().wait_for_idle().await;
 
     // The write-back is detached; poll briefly for its artifacts.
-    let transcript = tmp.path().join("stop-hook").join(format!(
-        "{}.jsonl",
-        engine.session_id().await
-    ));
+    let transcript = tmp
+        .path()
+        .join("stop-hook")
+        .join(format!("{}.jsonl", engine.session_id().await));
     let mut waited = 0;
     while !capture.exists() && waited < 200 {
         tokio::time::sleep(std::time::Duration::from_millis(25)).await;

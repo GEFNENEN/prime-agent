@@ -474,8 +474,7 @@ impl SessionUi {
                 .and_then(|model| model.get("provider"))
                 .and_then(Value::as_str)
                 .map_or_else(|| picked_provider.to_string(), str::to_string);
-            let model_name = model
-                .and_then(super::super::snapshot::model_display_name);
+            let model_name = model.and_then(super::super::snapshot::model_display_name);
             view.chrome.model_id = Some(model_id);
             view.chrome.model_name = model_name;
             view.chrome.model_provider = Some(model_provider);

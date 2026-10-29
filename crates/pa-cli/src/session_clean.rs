@@ -244,7 +244,11 @@ fn human_bytes(bytes: u64) -> String {
 }
 
 fn print_report(report: &Report, options: &Options) {
-    let verb = if options.dry_run { "would delete" } else { "deleted" };
+    let verb = if options.dry_run {
+        "would delete"
+    } else {
+        "deleted"
+    };
     for candidate in &report.empty {
         let cwd = candidate.cwd.as_deref().unwrap_or("?");
         println!(
@@ -258,11 +262,10 @@ fn print_report(report: &Report, options: &Options) {
         println!();
     }
     println!(
-        "scanned {} session(s); {verb} {} ({}){}",
+        "scanned {} session(s); {verb} {} ({})",
         report.scanned,
         report.empty.len(),
-        human_bytes(report.bytes_freed),
-        if report.empty.is_empty() { "" } else { "" }
+        human_bytes(report.bytes_freed)
     );
     if !report.kept.is_empty() {
         let mut counts: Vec<(&'static str, usize)> = Vec::new();

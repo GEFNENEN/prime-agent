@@ -52,9 +52,7 @@ impl StopHook {
         }
         Some(StopHook {
             command: command.to_string(),
-            timeout_ms: settings
-                .timeout_ms
-                .unwrap_or(DEFAULT_STOP_HOOK_TIMEOUT_MS),
+            timeout_ms: settings.timeout_ms.unwrap_or(DEFAULT_STOP_HOOK_TIMEOUT_MS),
             transcripts_dir: agent_dir.join("stop-hook"),
         })
     }
@@ -264,9 +262,8 @@ mod tests {
     /// test commands must speak that shell's quoting.
     #[cfg(windows)]
     fn shell_is_bash() -> bool {
-        crate::platform::get_shell_config(None).map_or(false, |config| {
-            config.shell.to_ascii_lowercase().contains("bash")
-        })
+        crate::platform::get_shell_config(None)
+            .is_ok_and(|config| config.shell.to_ascii_lowercase().contains("bash"))
     }
 
     /// A command that copies stdin into `capture`.
@@ -352,16 +349,14 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         assert!(StopHook::from_settings(None, dir.path()).is_none());
         assert!(StopHook::from_settings(Some(&StopHookSettings::default()), dir.path()).is_none());
-        assert!(
-            StopHook::from_settings(
-                Some(&StopHookSettings {
-                    command: Some("   ".to_string()),
-                    timeout_ms: None,
-                }),
-                dir.path(),
-            )
-            .is_none()
-        );
+        assert!(StopHook::from_settings(
+            Some(&StopHookSettings {
+                command: Some("   ".to_string()),
+                timeout_ms: None,
+            }),
+            dir.path(),
+        )
+        .is_none());
     }
 
     #[test]
