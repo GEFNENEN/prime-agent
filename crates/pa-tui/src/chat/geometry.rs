@@ -1,8 +1,6 @@
 //! Shared chat framing decisions and count-only geometry.
 use super::{AssistantMessage, Detail, MessageBlock};
-use crate::markdown::{
-    markdown_row_count, markdown_row_count_tagged, MarkdownBlockCache, MarkdownStyle,
-};
+use crate::markdown::{markdown_row_count_tagged, MarkdownBlockCache, MarkdownStyle};
 use crate::theme::{Theme, ThemeColor};
 
 pub(super) fn user_mask(text: &str) -> crate::prompt_highlight::PromptTokenMask {
@@ -57,14 +55,17 @@ pub(super) fn thinking_style(md: &MarkdownStyle, theme: &Theme) -> MarkdownStyle
 
 pub(crate) fn user_block_row_count(
     text: &str,
-    theme: &Theme,
-    code_block_indent: &str,
+    _theme: &Theme,
+    _code_block_indent: &str,
     width: usize,
 ) -> usize {
-    let mut md = MarkdownStyle::from_theme(theme);
-    code_block_indent.clone_into(&mut md.code_block_indent);
+    // The mask stands in for the highlight tokens at the same width, so the
+    // row count only needs the literal wrap — the same call the paint makes.
     let mask = user_mask(text);
-    markdown_row_count(&mask.text, width.saturating_sub(4).max(1), &md).max(1) + 2
+    let rows: usize = super::wrap_user_text(&mask.text, width.saturating_sub(4).max(1))
+        .len()
+        .max(1);
+    rows + 2
 }
 
 pub(crate) fn assistant_row_count(

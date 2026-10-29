@@ -28,14 +28,22 @@ fn markdown_link_targets_use_the_owning_view_cwd() {
         .to_string();
     let mut first = view();
     first.chrome.cwd = first_path.to_string_lossy().into_owned();
-    first.push_entry(ChatEntry::User {
-        text: "[link](url)".to_string(),
-    });
+    first.push_entry(ChatEntry::Assistant(Box::new(AssistantMessage {
+        blocks: vec![MessageBlock::Text("[link](url)".to_string())],
+        has_tool_calls: false,
+        streaming: false,
+        error: None,
+        aborted: false,
+    })));
     let mut second = view();
     second.chrome.cwd = second_path.to_string_lossy().into_owned();
-    second.push_entry(ChatEntry::User {
-        text: "[link](url)".to_string(),
-    });
+    second.push_entry(ChatEntry::Assistant(Box::new(AssistantMessage {
+        blocks: vec![MessageBlock::Text("[link](url)".to_string())],
+        has_tool_calls: false,
+        streaming: false,
+        error: None,
+        aborted: false,
+    })));
     let targets =
         |v: &mut AgentView| crate::hyperlinks::frame_link_ranges(&v.render_transcript(80));
     let first_targets = targets(&mut first);
