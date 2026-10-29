@@ -61,8 +61,14 @@ fn a_changed_link_base_rejects_the_held_layout() {
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     reset();
-    let entry = || ChatEntry::User {
-        text: "[link](url)".to_string(),
+    let entry = || {
+        ChatEntry::Assistant(Box::new(crate::chat::AssistantMessage {
+            blocks: vec![crate::chat::MessageBlock::Text("[link](url)".to_string())],
+            has_tool_calls: false,
+            streaming: false,
+            error: None,
+            aborted: false,
+        }))
     };
     let mut left = view();
     left.chrome.cwd = first_path.to_string_lossy().into_owned();
