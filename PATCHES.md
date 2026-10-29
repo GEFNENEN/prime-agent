@@ -5,7 +5,7 @@
 `git log main..custom`）。
 
 - 基线：`v0.10.2`（上游 `ea9d9602e` 的正式版提交）
-- 补丁数：**31**
+- 补丁数：**32**
 - 维护流程见 [MAINTAINING.md](MAINTAINING.md)
 
 表格以**提交标题**为主键、hash 只在括号里作参考：rebase 会重写 hash，
@@ -44,6 +44,7 @@
 | 29 | `26b5d9957` | fix | daemon 把 provider 头贴到 `Model` 上给直连接缝用 |
 | 30 | `db1efe00a` | fix | refine 请求保持机器可解析，失败时透出 provider 原话 |
 | 31 | `521f5d685` | fix | refine 的空回复在解析错误里点名 |
+| 32 | `2911a478c` | fix | provider 报错不再被当成空回复重试；refine 不再压低输出预算 |
 
 补丁之外还有文档与版本戳提交（`a7207133a`、`8a860c7d5`、`84706f55f`、
 `7186e2728`、`5e383efbc`、`15a825082`），它们随 rebase 改写 hash，按标题找。
@@ -585,3 +586,47 @@ Session 名列下限）。两处既有断言从裸 id 更新为带 provider 的�
 `pa-core` 41 项环境/上游失败）。顺带清掉了测试污染产生的
 `crates/pa-core/C:Users1...resolve-retry-<pid>` 垃圾文件。
 
+## 32. provider 报错不再冒充空回复 + refine 不再压低输出预算（`2911a478c`）
+
+两个行为缺陷，同一个来源：把「没拿到东西」的两种完全不同的原因混为一谈。
+
+**A. provider 失败被当成空回复重试**
+
+`agent_loop` 报 provider 失败的方式是**正常返回 `Ok(())`**，把错误放在一条
+assistant 行里：`content` 为空、`stop_reason` 是 `Error`（用户取消是 `Aborted`）。
+`run_turn_once` 把这条行原样交回，而 `is_empty_reply` 只看 content。链路于是变成：
+
+```
+provider 400/401 → content 空、stop_reason=Error
+  → is_empty_reply == true
+  → 空等 3 秒（EMPTY_REPLY_RETRY_DELAY_MS）
+  → 同一个必然失败的请求再发一次
+  → 仍然空 → 打「模型返回空回复」警告
+```
+
+三重代价：多付一次请求（可能计费）、白等 3 秒、**诊断指向错误的原因**——这正是
+补丁 30/31 在 refine 路径上花力气修掉的那类误导，在 daemon 这条路径上原样留着。
+它还会把 `stalled_run_announced` 的门关掉，于是父代理收到「我空了」的通知，而真实
+原因是 provider 拒绝。
+
+修改：`is_empty_reply` 对 `Error`/`Aborted` 返回 false。错误行照常进 transcript —
+—`finalize_assistant_error` 在 `stop_reason == "error"` 时渲染 `errorMessage`，
+用户看到的是 provider 的原话（或既有的 "Error" 兜底），不再是编造的空回复。
+
+**B. refine 把每个模型的输出预算钉成 8 192**
+
+原来那行注释写「仅在模型未声明上限时加地板，绝不覆盖声明值」，但
+`base.max_tokens` 在这里**恒为 `None`**（`SimpleStreamOptions` 由
+`..Default::default()` 构造），所以 `get_or_insert(8_192)` 每次都触发。它还越过了
+本已正确的解析：`build_base_options` 会回退到 `default_request_max_tokens(model)`，
+显式 `maxTokens` 原样放行、catalog 值按 32 000 封顶。声明 50 000 输出预算的模型
+被静默压到 8 192，让注释担心的「输出截断」在机器解析的 JSON 上**更**容易发生。
+
+修改：删掉那一行，由 `build_base_options` 决定。
+
+**验证**：`cargo test -p pa-daemon --lib empty_reply`（7 项通过，含两个新测试，
+分别钉住谓词的两个方向：`Error`/`Aborted` 不进重试、`stop` + 空内容仍进重试）、
+`cargo test -p pa-daemon --lib agent_engine::turn::model::tests`（4 项通过）。
+`cargo test -p pa-core --lib session_engine::refine` 12 通过 / 1 失败——该失败是
+`refine_request_is_identical_across_extraction_paths`，基线同样失败（断言在
+`refine_transcript_parts` 上，与请求选项无关）。
