@@ -59,7 +59,10 @@ fn reports(outputs: &[GuardOutput]) -> Vec<Report> {
         .filter_map(|out| match out {
             GuardOutput::Mouse(report) => Some(*report),
             GuardOutput::Event(Event::Mouse(mouse)) => mouse::from_crossterm(*mouse),
-            GuardOutput::Event(_) => None,
+            GuardOutput::Event(_)
+            | GuardOutput::PasteStart
+            | GuardOutput::PasteBody(_)
+            | GuardOutput::PasteEnd => None,
         })
         .collect()
 }
@@ -681,13 +684,20 @@ fn a_split_osc_reply_is_consumed_whole() {
     assert!(reports(&outputs).is_empty());
 }
 
-/// A bracketed-paste marker split at its `ESC` byte is consumed; the pasted text still flows as
-/// characters.
+/// A bracketed-paste marker split at its `ESC` byte is consumed: the marker
+/// never reaches the editor as text, and the body it opens is not dispatched
+/// as key presses either.
 #[test]
 fn a_split_bracketed_paste_marker_is_consumed_and_the_text_flows() {
     let outputs = run_guard(read_projection(b"\x1b[200~hi", &[1]));
-    assert_eq!(leaks(&outputs), vec![char_press('h'), char_press('i')]);
+    assert!(leaks(&outputs).is_empty(), "no key leaks: {outputs:?}");
     assert!(reports(&outputs).is_empty());
+    assert!(
+        outputs
+            .iter()
+            .any(|output| matches!(output, GuardOutput::PasteStart)),
+        "the split start marker still opens the paste: {outputs:?}"
+    );
 }
 
 #[test]
@@ -943,5 +953,81 @@ fn a_split_shift_enter_inserts_a_newline_in_the_editor() {
             .into_iter()
             .all(|event| !matches!(event, crate::editor::EditorEvent::Submitted(_))),
         "the newline press never submits"
+    );
+}
+
+/// One Ctrl+V paste on a Windows console: the terminal writes the bracketed
+/// markers and the body as ordinary key presses, one per read, so the guard
+/// sees `ESC [ 2 0 0 ~` and `ESC [ 2 0 1 ~` as seven presses each.
+fn windows_paste_events(body: &str) -> Vec<Event> {
+    let mut events = Vec::new();
+    for marker in ["\x1b[200~", "\x1b[201~"] {
+        for c in marker.chars() {
+            events.push(if c == '\x1b' {
+                esc_press()
+            } else {
+                char_press(c)
+            });
+        }
+        if marker.contains("200") {
+            // The body arrives between the two markers.
+            for c in body.chars() {
+                events.push(if c == '\n' || c == '\r' {
+                    Event::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE))
+                } else {
+                    char_press(c)
+                });
+            }
+        }
+    }
+    events
+}
+
+#[test]
+fn a_windows_bracketed_paste_becomes_one_paste_not_one_submit_per_line() {
+    // The regression this guard arm exists for: a console with `?2004` on
+    // delivers the marker as key presses, so without the arm the body's
+    // newlines reached the editor as Enter presses and the prompt was sent
+    // one line at a time.
+    let events = windows_paste_events("first\nsecond\nthird");
+    let outputs = run_guard(events);
+
+    let pastes: Vec<String> = outputs
+        .iter()
+        .filter_map(|output| match output {
+            GuardOutput::PasteBody(text) => Some(text.clone()),
+            _ => None,
+        })
+        .collect();
+    let joined: String = pastes.join("");
+    assert_eq!(
+        joined, "first\rsecond\rthird",
+        "the whole body is paste content, in order"
+    );
+    assert!(
+        outputs
+            .iter()
+            .any(|output| matches!(output, GuardOutput::PasteStart)),
+        "the start marker is recognized"
+    );
+    assert!(
+        outputs
+            .iter()
+            .any(|output| matches!(output, GuardOutput::PasteEnd)),
+        "the end marker is recognized"
+    );
+    // No Enter, and no marker character, ever reaches the editor as a key.
+    let leaked = leaks(&outputs);
+    assert!(leaked.is_empty(), "a paste leaks no key events: {leaked:?}");
+}
+
+#[test]
+fn a_lone_esc_still_stands_alone_outside_a_paste() {
+    // The paste arm must not swallow the ordinary escape handling.
+    let outputs = run_guard(vec![esc_press()]);
+    assert_eq!(
+        leaks(&outputs),
+        vec![esc_press()],
+        "an isolated Esc is still the Esc key"
     );
 }

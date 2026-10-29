@@ -966,7 +966,10 @@ impl Renderer {
                 // one paste — Enter submits in the composers, so a burst
                 // typed line by line would submit per line.
                 crate::input::spawn_paste_aware_reader(move |input| match input {
-                    crate::input::ReaderInput::BurstPaste(text) => {
+                    // Both a marker-less burst and a guard-collected bracketed
+                    // paste: one insert, never a per-line dispatch.
+                    crate::input::ReaderInput::BurstPaste(text)
+                    | crate::input::ReaderInput::Paste(text) => {
                         ui_tx.send(UiInput::Paste(text)).is_ok()
                     }
                     crate::input::ReaderInput::ChunkEnd => true,

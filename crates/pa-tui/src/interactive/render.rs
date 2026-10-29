@@ -126,7 +126,11 @@ impl crate::suspend::SuspendTerminal for TerminalHandoff<'_> {
 /// `isRawMultilinePaste`).
 pub(super) fn spawn_session_reader(ui_tx: mpsc::UnboundedSender<UiInput>, exit_guard: ExitGuard) {
     crate::input::spawn_paste_aware_reader(move |input| match input {
-        crate::input::ReaderInput::BurstPaste(text) => ui_tx.send(UiInput::Paste(text)).is_ok(),
+        // A marker-less burst and a guard-collected bracketed paste take the
+        // same route: the whole body inserts once, never per line.
+        crate::input::ReaderInput::BurstPaste(text) | crate::input::ReaderInput::Paste(text) => {
+            ui_tx.send(UiInput::Paste(text)).is_ok()
+        }
         crate::input::ReaderInput::ChunkEnd => ui_tx.send(UiInput::InputChunkEnd).is_ok(),
         // A report the guard reassembled from a sequence crossterm's reader split at a
         // committed-`ESC` read boundary: consumed unless tracking is active, like the terminal's

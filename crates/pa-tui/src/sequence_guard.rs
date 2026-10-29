@@ -15,12 +15,32 @@ use crate::mouse::{self, MouseEvent as Report};
 /// How long a lone `ESC` (or a half-assembled sequence) waits for its continuation before flushing.
 pub(crate) const HOLD: Duration = Duration::from_millis(10);
 
+/// The bracketed-paste markers (ECMA-48 `?2004`): `ESC [ 2 0 0 ~` opens a paste
+/// and `ESC [ 2 0 1 ~` closes it. The body between them is literal text — its
+/// newlines are paste content, never submits.
+const BRACKETED_PASTE_START: &[u8] = b"\x1b[200~";
+const BRACKETED_PASTE_END: &[u8] = b"\x1b[201~";
+
 /// What the guard emits in place of one reader event: a passthrough event,
-/// or a mouse report decoded from a reassembled sequence ([`crate::input::ReaderInput::Mouse`]).
+/// a mouse report decoded from a reassembled sequence ([`crate::input::ReaderInput::Mouse`]),
+/// or one piece of a bracketed paste.
+///
+/// The paste pieces exist because on Windows a terminal delivers the
+/// `ESC [ 2 0 0 ~` marker as ordinary key presses, one per read, so the guard
+/// is the only layer that can see the marker as a sequence at all. It then has
+/// to collect the body itself: the reads in between are indistinguishable from
+/// typing, and letting them through is what used to turn one paste into one
+/// submitted prompt per line.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum GuardOutput {
     Event(Event),
     Mouse(Report),
+    /// A bracketed paste opened (`ESC[200~`).
+    PasteStart,
+    /// One run of the paste body.
+    PasteBody(String),
+    /// The paste closed (`ESC[201~`).
+    PasteEnd,
 }
 
 /// One held `ESC` and the sequence reassembled behind it, if any.
@@ -48,14 +68,37 @@ impl PendingEscape {
 }
 
 /// The reader's escape guard: holds committed lone `ESC`s and reassembles the sequences they opened
-/// (see the module docs).
+/// (see the module docs), and collects a bracketed paste's body once its start marker is seen.
 #[derive(Default)]
 pub(crate) struct SequenceGuard {
     pending: Option<PendingEscape>,
+    /// `Some` between a paste's start and end markers: the collected body so far.
+    paste: Option<String>,
 }
 
 impl SequenceGuard {
     pub(crate) fn feed(&mut self, event: Event, now: Instant) -> Vec<GuardOutput> {
+        // Inside a paste, an ordinary key press is body text: `Enter` is a
+        // newline, not a submit, and no marker character ever reaches the
+        // editor. Two exceptions fall through to the shared path: an `ESC`,
+        // which opens the end marker's escape sequence, and any event while
+        // that sequence is still being reassembled — those bytes are marker
+        // bytes, not body text.
+        //
+        // The body is collected here and poured out as one `PasteBody` when the
+        // end marker arrives. Emitting it piecemeal would work too, but the
+        // consumers forward per round, and a paste spans rounds.
+        if self.paste.is_some()
+            && self.pending.is_none()
+            && !matches!(&event, Event::Key(key) if is_bare_esc_press(key))
+        {
+            if let Some(text) = paste_body_text(&event) {
+                if let Some(body) = self.paste.as_mut() {
+                    body.push_str(&text);
+                }
+                return Vec::new();
+            }
+        }
         match self.pending.take() {
             None => match &event {
                 Event::Key(key) if is_bare_esc_press(key) => {
@@ -92,7 +135,32 @@ impl SequenceGuard {
                 // Every chunk that extends the buffer resets the flush timeout.
                 pending.deadline = now + HOLD;
                 if is_complete_sequence(&pending.assembled) {
-                    classify(&pending)
+                    let mut out = classify(&pending);
+                    // The markers are state transitions, not just events: entering
+                    // paste mode is what stops the body from dispatching as keys,
+                    // and leaving it is when the collected body ships.
+                    for output in &out {
+                        if matches!(output, GuardOutput::PasteStart) && self.paste.is_none() {
+                            self.paste = Some(String::new());
+                        }
+                    }
+                    if out
+                        .iter()
+                        .any(|output| matches!(output, GuardOutput::PasteEnd))
+                    {
+                        if let Some(body) = self.paste.take() {
+                            // The body rides ahead of the end so a consumer
+                            // that inserts on PasteEnd sees it.
+                            let at = out
+                                .iter()
+                                .position(|output| matches!(output, GuardOutput::PasteEnd))
+                                .expect("checked above");
+                            if !body.is_empty() {
+                                out.insert(at, GuardOutput::PasteBody(body));
+                            }
+                        }
+                    }
+                    out
                 } else {
                     self.pending = Some(pending);
                     Vec::new()
@@ -118,6 +186,29 @@ impl SequenceGuard {
             }
             None => Vec::new(),
         }
+    }
+}
+
+/// The body text one read contributes while a paste is open. `Enter` is the
+/// paste's newline (never a submit), `Tab` is a tab; everything else is its
+/// character. Modified keys, releases and non-key events carry no body text.
+fn paste_body_text(event: &Event) -> Option<String> {
+    let Event::Key(key) = event else {
+        return None;
+    };
+    if !matches!(key.kind, KeyEventKind::Press | KeyEventKind::Repeat) {
+        return None;
+    }
+    if key.modifiers.intersects(
+        KeyModifiers::ALT | KeyModifiers::CONTROL | KeyModifiers::SUPER | KeyModifiers::HYPER,
+    ) {
+        return None;
+    }
+    match key.code {
+        KeyCode::Char(c) => Some(c.to_string()),
+        KeyCode::Enter => Some("\r".to_string()),
+        KeyCode::Tab => Some("\t".to_string()),
+        _ => None,
     }
 }
 
@@ -229,6 +320,16 @@ fn ends_with_terminator(after_esc: &[u8], bel: bool) -> bool {
 /// reports decode, recognized keys synthesize their crossterm event, everything else is consumed.
 fn classify(pending: &PendingEscape) -> Vec<GuardOutput> {
     let bytes = pending.assembled.as_slice();
+    // The bracketed-paste markers. A terminal that implements bracketed paste
+    // hands crossterm an `Event::Paste` and these never reach the guard; a
+    // Windows console delivers `ESC [ 2 0 0 ~` as seven ordinary key presses,
+    // so the guard is the only layer that can recognize the marker.
+    if bytes == BRACKETED_PASTE_START {
+        return vec![GuardOutput::PasteStart];
+    }
+    if bytes == BRACKETED_PASTE_END {
+        return vec![GuardOutput::PasteEnd];
+    }
     if bytes.starts_with(b"\x1b[<") {
         return decode_report(bytes, true);
     }
