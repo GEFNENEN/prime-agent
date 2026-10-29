@@ -161,28 +161,87 @@ fn row_runs(row: &Line) -> Vec<(String, Style)> {
 #[test]
 fn user_block_keeps_the_link_affordance() {
     crate::hyperlinks::set_hyperlinks_override(Some(false));
-    let (bg, body, _, _, _) = user_block_styles();
-    let link_url = bg.patch(theme().fg_style(ThemeColor::MdLinkUrl));
-    let rows = render_user_block("see [docs](https://x.dev/a)", &theme(), "  ", 60);
+    let theme = theme();
+    // Visible text with the OSC 8 escapes dropped: they carry no glyphs.
+    let visible = |rows: &[Line]| -> String {
+        let raw: String = rows[1].iter().map(|s| s.content.as_str()).collect();
+        let mut out = String::new();
+        let mut rest = raw.as_str();
+        while !rest.is_empty() {
+            if let Some(len) = crate::width::escape_len(rest) {
+                rest = &rest[len..];
+                continue;
+            }
+            let c = rest.chars().next().expect("non-empty");
+            out.push(c);
+            rest = &rest[c.len_utf8()..];
+        }
+        out.trim_end().to_string()
+    };
+    // A typed URL stays clickable, but the text is literal: markdown link
+    // syntax is not interpreted, so `[docs](url)` shows exactly what was typed
+    // and only the URL run inside it carries the OSC 8 region.
+    let rows = render_user_block("see https://x.dev/a now", &theme, "  ", 60);
     assert_eq!(rows.len(), 3);
-    assert_eq!(
-        row_runs(&rows[1]),
-        vec![
-            ("  ".to_string(), bg),
-            ("see ".to_string(), body),
-            (
-                format!(
-                    "{}docs{}",
-                    crate::hyperlinks::osc8_open("https://x.dev/a"),
-                    crate::hyperlinks::OSC8_CLOSE
-                ),
-                body.add_modifier(ratatui::style::Modifier::UNDERLINED)
-            ),
-            (" (https://x.dev/a)".to_string(), link_url),
-            (" ".repeat(60 - 28), bg),
-        ]
+    let raw: String = rows[1].iter().map(|s| s.content.as_str()).collect();
+    assert!(
+        raw.contains(&format!(
+            "{}https://x.dev/a{}",
+            crate::hyperlinks::osc8_open("https://x.dev/a"),
+            crate::hyperlinks::OSC8_CLOSE
+        )),
+        "the URL carries an OSC 8 region: {raw:?}"
     );
+    assert_eq!(visible(&rows), "  see https://x.dev/a now");
+    // Markdown link syntax is no longer rewritten into a label: the brackets
+    // and the parenthesized target both stay as typed.
+    let rows = render_user_block("see [docs](https://x.dev/a)", &theme, "  ", 60);
+    assert_eq!(visible(&rows), "  see [docs](https://x.dev/a)");
     crate::hyperlinks::set_hyperlinks_override(None);
+}
+
+#[test]
+fn user_block_never_interprets_markdown() {
+    // The echo must show exactly what the editor showed: no markdown
+    // construct may consume a typed character. These are the shapes that
+    // regressed in v0.10.2 (every one lost characters through the markdown
+    // renderer).
+    let cases = [
+        "__init__.py",
+        "__pycache__",
+        "_private",
+        "2*3*4",
+        "x = 2 * 3 * 4",
+        "glob *.rs",
+        "~~del~~",
+        "``",
+        "`code`",
+        "#",
+        "##",
+        "# comment",
+        "---",
+        ">",
+        ">>",
+        "> a",
+        ">=",
+        "\\*",
+        "C:\\Users\\1",
+        "说明：_下划线_ 很重要",
+        "[a](b)",
+        "| a | b |",
+        "a_b_c",
+        "MAX_TOKENS",
+    ];
+    for case in cases {
+        let rows = render_user_block(case, &theme(), "  ", 80);
+        assert_eq!(rows.len(), 3, "{case:?} is a one-row block");
+        let text: String = rows[1].iter().map(|s| s.content.as_str()).collect();
+        assert_eq!(
+            text.trim(),
+            case,
+            "{case:?} must survive the echo verbatim, got {text:?}"
+        );
+    }
 }
 
 #[test]
