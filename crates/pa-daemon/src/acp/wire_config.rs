@@ -24,6 +24,9 @@ pub(crate) struct HostedConfig {
     pub(crate) queue: tokio::sync::Mutex<()>,
     pub(crate) published: tokio::sync::Mutex<Vec<SessionConfigOption>>,
     pub(crate) models: tokio::sync::Mutex<Vec<pa_types::ai::Model>>,
+    /// The selected model's context window, in tokens; `0` while unknown.
+    /// The ACP event loop reads it to size the `usage_update` meter.
+    pub(crate) context_window: std::sync::atomic::AtomicU64,
 }
 
 /// `session/set_config_option`: apply one picker selection through the
@@ -299,6 +302,26 @@ pub(super) async fn fetch_available_models(
     Ok(serde_json::from_value(models).unwrap_or_default())
 }
 
+/// The selected model's context window from the discovered catalog: the
+/// entry matching the live `{provider, id}` pair. `0` when either side is
+/// unknown, which suppresses the meter instead of drawing a false size.
+pub(super) fn current_context_window(state: Option<&Value>, models: &[pa_types::ai::Model]) -> u64 {
+    let Some(state) = state else {
+        return 0;
+    };
+    let model = &state["model"];
+    let (Some(provider), Some(id)) = (
+        model.get("provider").and_then(Value::as_str),
+        model.get("id").and_then(Value::as_str),
+    ) else {
+        return 0;
+    };
+    models
+        .iter()
+        .find(|candidate| candidate.provider == provider && candidate.id == id)
+        .map_or(0, |candidate| candidate.context_window)
+}
+
 /// Build the pickers from one connection state (the shared computation's
 /// wire-side input adapter).
 pub(super) fn picker_options_from_state(
@@ -336,7 +359,13 @@ pub(super) async fn refresh_wire_config(
             "the post-apply refresh failed: the worker's live state could not be read",
         ));
     };
-    let options = picker_options_from_state(Some(&state), &config.models.lock().await);
+    let models = config.models.lock().await;
+    let options = picker_options_from_state(Some(&state), &models);
+    config.context_window.store(
+        current_context_window(Some(&state), &models),
+        std::sync::atomic::Ordering::Relaxed,
+    );
+    drop(models);
     publish_config_options(producer, &config.published, options.clone()).await;
     Ok(options)
 }
