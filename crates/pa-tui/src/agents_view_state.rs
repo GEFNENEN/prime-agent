@@ -1087,7 +1087,7 @@ mod tests {
             &std::collections::HashSet::default(),
             &std::collections::HashSet::default(),
             &std::collections::HashMap::default(),
-            &std::collections::HashMap::default(),
+            &crate::agents_view_forest::ActivityCounts::default(),
             None,
         );
         // An 80-column terminal is the ordinary case and must not truncate.
