@@ -70,6 +70,9 @@ pub(crate) fn request_reader_stop() {
     }
 }
 
+/// Set `PASTE_TRACE=1` to print every read's raw terminal events to stderr.
+pub(crate) const TRACE_ENV: &str = "PASTE_TRACE";
+
 /// One input unit for the paste-aware reader: a parsed terminal event, a mouse report decoded from
 /// a reassembled escape sequence, or a bracketed paste.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -188,6 +191,12 @@ where
                     // wrapper's `Esc` head and reassemble the inner `ESC [ A` as plain Up, losing
                     // the option identity.
                     let events = merge_legacy_meta_escapes(events);
+                    // One read's raw events, for diagnosing a terminal whose paste framing
+                    // differs from what the guard expects (`PASTE_TRACE=1`). This is the only
+                    // place that sees what the platform actually delivered.
+                    if std::env::var_os(crate::input::TRACE_ENV).is_some() {
+                        eprintln!("[tui-input] read #{}: {:?}", events.len(), events);
+                    }
                     let mut outputs = Vec::new();
                     for event in events {
                         outputs.extend(guard.feed(event, Instant::now()));
@@ -392,6 +401,9 @@ fn forward(outputs: Vec<GuardOutput>, on_input: &mut dyn FnMut(ReaderInput) -> b
             .map(ReaderInput::Event),
     );
     for input in inputs {
+        if std::env::var_os(TRACE_ENV).is_some() {
+            eprintln!("[tui-forward] {input:?}");
+        }
         if !on_input(input) {
             return false;
         }
