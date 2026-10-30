@@ -176,6 +176,11 @@ pub enum AcpSessionUpdate {
         #[serde(rename = "_meta")]
         meta: Value,
     },
+    /// The context window the conversation occupies: `used` tokens of
+    /// `size`, sent after each settled assistant message so a client can
+    /// draw its context meter.
+    #[serde(rename = "usage_update")]
+    UsageUpdate { used: u64, size: u64 },
     /// The session's configuration options changed (TS #2455): the
     /// full set with current values, connection-scoped.
     #[serde(rename = "config_option_update")]
@@ -529,5 +534,13 @@ mod tests {
         assert_eq!(value["status"], "completed");
         assert_eq!(value["content"][0]["type"], "content");
         assert_eq!(value["content"][0]["content"]["text"], "42");
+        let meter = AcpSessionUpdate::UsageUpdate {
+            used: 1_525,
+            size: 200_000,
+        };
+        assert_eq!(
+            meter.to_bare_value(),
+            json!({ "sessionUpdate": "usage_update", "used": 1_525, "size": 200_000 })
+        );
     }
 }
