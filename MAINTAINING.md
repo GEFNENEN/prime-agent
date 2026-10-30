@@ -36,6 +36,10 @@
   `package.json` 与 `.prime-agent-install` 必须写入完整字符串。
 - 上游 beta tag 常带一个 tag-only 提交（只改 `Cargo.toml`/`Cargo.lock`
   版本行，分支不包含），基线直接取该 tag 提交。
+- **不采用上游的 `.changes/` 变更片段**：那个目录的检查只在向
+  `PrimeIntellect-ai/prime-agent` 开 PR 时触发（`.changes/README.md` 的
+  changelog 片段门禁），而本 fork 直接推 `custom` 分支，从不向该仓库开 PR，
+  门禁永远不会运行。变更记录以 [PATCHES.md](PATCHES.md) 为准。
 
 ## 3. 同步上游（标准流程）
 
@@ -141,6 +145,11 @@ git worktree remove --force ../pa-base-check
 - 端口相关测试（`mcp_login`、OAuth 回调等）：Windows 上某些端口段可能被
   HNS/WinNAT 类组件保留，报 `os error 10048`（端口被占用），与代码无关。
   管理员执行 `net stop winnat && net start winnat` 可临时缓解。
+
+**基线自己编不过时，先证伪再修**：beta tag 可能带着编译不过的测试目标
+（实测 `v0.10.3-beta.5` 的 `pa-tui` lib 测试有 5 处 `E0061`）。遇到这种情况，
+在干净的上游 worktree 上用同一命令复现一次，确认不是本 fork 引入的，再决定
+补实参还是跳过该测试目标；结论写进 [PATCHES.md](PATCHES.md) 的 rebase 记录。
 
 **不要用共享 `CARGO_TARGET_DIR` 做 A/B 对照**：两棵 worktree 会互相覆盖同名
 测试二进制，导致两边都"失败"的假象。对照时给每棵树单独的 `CARGO_TARGET_DIR`，
