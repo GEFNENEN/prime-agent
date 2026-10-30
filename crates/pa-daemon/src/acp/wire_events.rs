@@ -21,6 +21,10 @@ pub struct WireMappingState {
     next_assistant_message_sequence: u64,
     active_assistant_message_id: Option<String>,
     active_bash_run_id: Option<String>,
+    /// The selected model's context window in tokens, refreshed by the
+    /// transport from the live picker state. `0` means "not known yet" and
+    /// suppresses the `usage_update` meter rather than reporting a size of 0.
+    pub context_window: u64,
 }
 
 impl WireMappingState {
@@ -117,15 +121,18 @@ pub fn wire_updates(event: &Value, state: &mut WireMappingState) -> Vec<AcpSessi
             }
         }
         "message_end" => {
-            if event
-                .get("message")
+            let message = event.get("message");
+            if message
                 .and_then(|message| message.get("role"))
                 .and_then(Value::as_str)
-                == Some("assistant")
+                != Some("assistant")
             {
-                state.active_assistant_message_id = None;
+                return Vec::new();
             }
-            Vec::new()
+            state.active_assistant_message_id = None;
+            usage_update(message, state.context_window)
+                .into_iter()
+                .collect()
         }
         "tool_execution_start" => {
             let tool_call_id = event
@@ -145,7 +152,10 @@ pub fn wire_updates(event: &Value, state: &mut WireMappingState) -> Vec<AcpSessi
                 None
             };
             let title = if pa_types::ai::is_python_tool_name(&tool_name) {
-                "Python cell".to_string()
+                cell.as_deref().and_then(cell_label).map_or_else(
+                    || "Python cell".to_string(),
+                    |label| format!("Python: {label}"),
+                )
             } else {
                 tool_name.clone()
             };
@@ -415,6 +425,40 @@ fn bash_tool_call_id(run_id: Option<String>) -> String {
     }
 }
 
+/// The `usage_update` a settled assistant message contributes: its context
+/// tokens (the same count `session_stats` reports) over the selected model's
+/// window. No known window, or a usage that does not count (aborted, errored,
+/// empty), means no meter rather than a false reading.
+fn usage_update(message: Option<&Value>, context_window: u64) -> Option<AcpSessionUpdate> {
+    if context_window == 0 {
+        return None;
+    }
+    let used = pa_types::usage::calculate_context_tokens(&pa_types::usage::valid_assistant_usage(
+        message?,
+    )?);
+    (used > 0).then_some(AcpSessionUpdate::UsageUpdate {
+        used,
+        size: context_window,
+    })
+}
+
+/// A one-line label for a Python cell: its first non-blank line, whitespace
+/// collapsed, capped so the ACP command title stays readable in a client's
+/// timeline. `None` when the code carries no printable line.
+fn cell_label(code: &str) -> Option<String> {
+    const MAX_CHARS: usize = 60;
+    let line = code.lines().map(str::trim).find(|line| !line.is_empty())?;
+    let collapsed = line.split_whitespace().collect::<Vec<_>>().join(" ");
+    if collapsed.is_empty() {
+        return None;
+    }
+    let mut label: String = collapsed.chars().take(MAX_CHARS).collect();
+    if collapsed.chars().count() > MAX_CHARS {
+        label.push('\u{2026}');
+    }
+    Some(label)
+}
+
 /// TS `toolResultText`: the text of a tool result, wherever the engine
 /// carries it. Empty text blocks drop out before the join and an empty
 /// text yields `None`, so no update carries empty content (the TS call
@@ -591,7 +635,7 @@ mod tests {
     }
 
     #[test]
-    fn tool_calls_and_completions_map_like_the_ts_adapter() {
+    fn tool_calls_and_completions_map_to_acp_shapes() {
         let mut state = WireMappingState::default();
         let updates = wire_updates(
             &json!({
@@ -604,7 +648,7 @@ mod tests {
         );
         let value = serde_json::to_value(&updates[0]).unwrap();
         assert_eq!(value["sessionUpdate"], "tool_call");
-        assert_eq!(value["title"], "Python cell");
+        assert_eq!(value["title"], "Python: print(1)");
         assert_eq!(value["rawInput"], json!({ "code": "print(1)" }));
         let updates = wire_updates(
             &json!({
@@ -619,6 +663,127 @@ mod tests {
         assert_eq!(value["sessionUpdate"], "tool_call_update");
         assert_eq!(value["status"], "completed");
         assert_eq!(value["content"][0]["content"]["text"], "1\n");
+    }
+
+    #[test]
+    fn a_settled_assistant_message_reports_the_context_window() {
+        let mut state = WireMappingState {
+            context_window: 200_000,
+            ..WireMappingState::default()
+        };
+        let updates = wire_updates(
+            &json!({
+                "type": "message_end",
+                "message": {
+                    "role": "assistant",
+                    "usage": { "input": 1_000, "output": 40, "cacheRead": 500, "cacheWrite": 25 },
+                },
+            }),
+            &mut state,
+        );
+        let value = serde_json::to_value(&updates[0]).unwrap();
+        assert_eq!(value["sessionUpdate"], "usage_update");
+        assert_eq!(value["used"], 1_565);
+        assert_eq!(value["size"], 200_000);
+    }
+
+    #[test]
+    fn a_reported_total_wins_over_the_field_sum() {
+        let mut state = WireMappingState {
+            context_window: 8_192,
+            ..WireMappingState::default()
+        };
+        let updates = wire_updates(
+            &json!({
+                "type": "message_end",
+                "message": {
+                    "role": "assistant",
+                    "usage": { "totalTokens": 700, "input": 10, "output": 5 },
+                },
+            }),
+            &mut state,
+        );
+        let value = serde_json::to_value(&updates[0]).unwrap();
+        assert_eq!(value["used"], 700);
+    }
+
+    #[test]
+    fn no_known_window_or_no_usage_reports_no_meter() {
+        let mut state = WireMappingState::default();
+        let settled = json!({
+            "type": "message_end",
+            "message": { "role": "assistant", "usage": { "input": 10 } },
+        });
+        assert_eq!(wire_updates(&settled, &mut state), Vec::new());
+
+        let mut sized = WireMappingState {
+            context_window: 8_192,
+            ..WireMappingState::default()
+        };
+        let unused = json!({
+            "type": "message_end",
+            "message": { "role": "assistant", "usage": { "input": 0 } },
+        });
+        assert_eq!(wire_updates(&unused, &mut sized), Vec::new());
+
+        let bare = json!({ "type": "message_end", "message": { "role": "assistant" } });
+        assert_eq!(wire_updates(&bare, &mut sized), Vec::new());
+
+        let aborted = json!({
+            "type": "message_end",
+            "message": {
+                "role": "assistant",
+                "stopReason": "aborted",
+                "usage": { "input": 900 },
+            },
+        });
+        assert_eq!(wire_updates(&aborted, &mut sized), Vec::new());
+    }
+
+    #[test]
+    fn a_python_cell_title_names_its_first_line() {
+        assert_eq!(
+            cell_label("import os\nprint(1)").as_deref(),
+            Some("import os")
+        );
+        assert_eq!(
+            cell_label("\n\n  r = await bash(\"git status\")  \nprint(r)").as_deref(),
+            Some("r = await bash(\"git status\")")
+        );
+        assert_eq!(
+            cell_label("print(1)\nprint(2)").as_deref(),
+            Some("print(1)")
+        );
+        assert_eq!(cell_label(" \n\t\n"), None);
+        assert_eq!(cell_label(""), None);
+    }
+
+    #[test]
+    fn a_python_cell_title_collapses_whitespace_and_caps_its_length() {
+        assert_eq!(
+            cell_label("rows   =   load(  path )").as_deref(),
+            Some("rows = load( path )")
+        );
+        let long = "x".repeat(80);
+        let label = cell_label(&long).unwrap();
+        assert_eq!(label.chars().count(), 61);
+        assert!(label.ends_with('\u{2026}'));
+    }
+
+    #[test]
+    fn a_blank_python_cell_keeps_the_generic_title() {
+        let mut state = WireMappingState::default();
+        let updates = wire_updates(
+            &json!({
+                "type": "tool_execution_start",
+                "toolCallId": "call-1",
+                "toolName": "ipython",
+                "args": { "code": "\n  \n" },
+            }),
+            &mut state,
+        );
+        let value = serde_json::to_value(&updates[0]).unwrap();
+        assert_eq!(value["title"], "Python cell");
     }
 
     #[test]
