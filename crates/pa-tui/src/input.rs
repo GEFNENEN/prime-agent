@@ -1353,7 +1353,9 @@ mod tests {
     }
 
     /// A round that lands after the window closed starts fresh: the earlier burst was already
-    /// complete.
+    /// complete. The second round carries no newline, so the fork's "a write with a newline is a
+    /// paste" rule (`7b3cd948b`) cannot classify it on its own and the assertion pins the
+    /// coalescer alone.
     #[test]
     fn a_round_after_the_window_is_not_joined() {
         let _guard = crate::enhanced_keys::TEST_STATE_LOCK
@@ -1362,15 +1364,15 @@ mod tests {
         crate::enhanced_keys::set_kitty_active_for_tests(false);
         let inputs = drive(
             WINDOWS_WINDOW,
-            vec![(0, windows_paste("ok")), (500, windows_paste("\rx"))],
+            vec![(0, windows_paste("ok")), (500, windows_paste("yz"))],
         );
         assert_eq!(
             inputs,
             vec![
                 ReaderInput::Event(key(KeyCode::Char('o'), KeyModifiers::NONE)),
                 ReaderInput::Event(key(KeyCode::Char('k'), KeyModifiers::NONE)),
-                ReaderInput::Event(key(KeyCode::Enter, KeyModifiers::NONE)),
-                ReaderInput::Event(key(KeyCode::Char('x'), KeyModifiers::NONE)),
+                ReaderInput::Event(key(KeyCode::Char('y'), KeyModifiers::NONE)),
+                ReaderInput::Event(key(KeyCode::Char('z'), KeyModifiers::NONE)),
             ]
         );
     }
