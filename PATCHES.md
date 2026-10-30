@@ -4,8 +4,8 @@
 补丁被移除或合并进上游后，对应条目直接删除，不保留历史记录（历史见
 `git log main..custom`）。
 
-- 基线：`v0.10.2`（上游 `ea9d9602e` 的正式版提交）
-- 补丁数：**34**
+- 基线：`v0.10.3-beta.5`（上游 `9cf0d47e2`；tag 提交为 `5543b66e5`，tag-only）
+- 补丁数：**35**
 - 维护流程见 [MAINTAINING.md](MAINTAINING.md)
 
 表格以**提交标题**为主键、hash 只在括号里作参考：rebase 会重写 hash，
@@ -13,43 +13,66 @@
 
 | # | 提交 | 类型 | 摘要 |
 | --- | --- | --- | --- |
-| 1 | `9e4335a76` | fix | 顶栏始终显示会话工作目录 |
-| 2 | `a1e9e51d2` | fix | 内核忙时等待更久（5s → 30s） |
-| 3 | `77708a80b` | fix | 从 agent 主题目录解析自定义主题 |
-| 4 | `ba9936cb1` | fix | 分离进程不再弹出控制台窗口 |
-| 5 | `4e54b50cb` | feat | 每个被接纳的 turn 前运行 turnHook |
-| 6 | `be481d871` | feat | 运行结束后通过 stopHook 写回 |
-| 7 | `2c5fa729c` | fix | 在运行结束前同步 spawn stopHook |
-| 8 | `63da66dbf` | feat | 用 updateGuard 拦截自更新 |
-| 9 | `0a31a298f` | fix | Windows 剪贴板走 UTF-8 控制台 |
-| 10 | `87c6ff653` | fix | 所有多行粘贴折叠为标记 |
-| 11 | `db9606852` | feat | 新增 clean-kernel-state 命令 |
-| 12 | `8ed36305c` | fix | 空回复自动重试 + 流空闲超时 |
-| 13 | `c1ff59958` | fix | 停滞的子代理重新派活 + 重试提示按回合隔离 |
-| 14 | `99e5e75a0` | fix | 停滞通知只发给父代理一次 |
-| 15 | `9428c8307` | fix | 收养无 bootstrap 记录的 kernel venv |
-| 16 | `b9f39406d` | fix | 空回复重试前固定等 3 秒 |
-| 17 | `63d0d8c24` | fix | 托盘显示 provider 与配置的模型名 |
-| 18 | `27364d28d` | fix | 推理档位一路带到线上 |
-| 19 | `34d51cb83` | fix | `/speed` 开关持久化 |
-| 20 | `1f3d3419d` | feat | 新增 session clean 清理空会话 |
-| 21 | `79eb93266` | fix | refine 的 passthrough 头改为合并而非整表覆盖 |
-| 22 | `c897dd537` | fix | 多行粘贴在写边界被拆开时仍按粘贴处理 |
-| 23 | `f43f62944` | feat | agents view 的 Model 列显示 provider / model |
-| 24 | `885e386e1` | fix | 用户消息回显改为纯文本，不再吞字符 |
-| 25 | `8458466b1` | fix | 清掉 fork 的 CI 门（fmt / clippy / 乱码注释） |
-| 26 | `1333d6e81` | fix | 单独的 `>` 保持字面显示（APPEND 续跑命令） |
-| 27 | `c9f73f124` | fix | RPC 的 lease 探测移出 tokio 运行时 |
-| 28 | `d4806c1c9` | fix | RPC 会话接入心跳与阈值自动压缩 |
-| 29 | `26b5d9957` | fix | daemon 把 provider 头贴到 `Model` 上给直连接缝用 |
-| 30 | `db1efe00a` | fix | refine 请求保持机器可解析，失败时透出 provider 原话 |
-| 31 | `521f5d685` | fix | refine 的空回复在解析错误里点名 |
-| 32 | `2911a478c` | fix | provider 报错不再被当成空回复重试；refine 不再压低输出预算 |
-| 33 | `d9b8bce95` | feat | ACP：Python cell 按代码首行命名，并上报上下文用量 |
-| 34 | `6d89e814a` | feat | TUI：`PASTE_TRACE` 打印粘贴路径上的原始终端事件 |
+| 1 | `02941599f` | fix | 顶栏始终显示会话工作目录 |
+| 2 | `d8812d2cc` | fix | 内核忙时等待更久（5s → 30s） |
+| 3 | `3d3d62df5` | fix | 从 agent 主题目录解析自定义主题 |
+| 4 | `5b934a67f` | fix | 分离进程不再弹出控制台窗口 |
+| 5 | `b432b9c82` | feat | 每个被接纳的 turn 前运行 turnHook |
+| 6 | `8af0afa8a` | feat | 运行结束后通过 stopHook 写回 |
+| 7 | `e78e1a927` | fix | 在运行结束前同步 spawn stopHook |
+| 8 | `5a730ac9d` | feat | 用 updateGuard 拦截自更新 |
+| 9 | `c9db67a78` | fix | Windows 剪贴板走 UTF-8 控制台 |
+| 10 | `2c1c12a89` | fix | 所有多行粘贴折叠为标记 |
+| 11 | `ed58d68fe` | feat | 新增 clean-kernel-state 命令 |
+| 12 | `ce3bbb7c3` | fix | 空回复自动重试 + 流空闲超时 |
+| 13 | `4d0434a99` | fix | 停滞的子代理重新派活 + 重试提示按回合隔离 |
+| 14 | `f45a7d32b` | fix | 停滞通知只发给父代理一次 |
+| 15 | `5fc6b6f4e` | fix | 收养无 bootstrap 记录的 kernel venv |
+| 16 | `beae8d01e` | fix | 空回复重试前固定等 3 秒 |
+| 17 | `cd4dbf0e5` | fix | 托盘显示 provider 与配置的模型名 |
+| 18 | `e053de177` | fix | 推理档位一路带到线上 |
+| 19 | `577e1bc78` | fix | `/speed` 开关持久化 |
+| 20 | `09244c28b` | feat | 新增 session clean 清理空会话 |
+| 21 | `1f7de0f08` | fix | refine 的 passthrough 头改为合并而非整表覆盖 |
+| 22 | `7b3cd948b` | fix | 多行粘贴在写边界被拆开时仍按粘贴处理 |
+| 23 | `61c6e2765` | feat | agents view 的 Model 列显示 provider / model |
+| 24 | `5f2bcd46d` | fix | 用户消息回显改为纯文本，不再吞字符 |
+| 25 | `d1b357e93` | fix | 清掉 fork 的 CI 门（fmt / clippy / 乱码注释） |
+| 26 | `7718719b3` | fix | 单独的 `>` 保持字面显示（APPEND 续跑命令） |
+| 27 | `3b0008f62` | fix | RPC 的 lease 探测移出 tokio 运行时 |
+| 28 | `7591913b8` | fix | RPC 会话接入心跳与阈值自动压缩 |
+| 29 | `0e7a77c18` | fix | daemon 把 provider 头贴到 `Model` 上给直连接缝用 |
+| 30 | `08a509ec3` | fix | refine 请求保持机器可解析，失败时透出 provider 原话 |
+| 31 | `2a79ed82e` | fix | refine 的空回复在解析错误里点名 |
+| 32 | `11a542736` | fix | provider 报错不再被当成空回复重试；refine 不再压低输出预算 |
+| 33 | `b1d04d02a` | fix | Windows 括号粘贴从按键流重组为一次粘贴 |
+| 34 | `a829c0881` | feat | ACP：Python cell 按代码首行命名，并上报上下文用量 |
+| 35 | `b1021aa09` | feat | TUI：`PASTE_TRACE` 打印粘贴路径上的原始终端事件 |
 
-补丁之外还有文档与版本戳提交（`a7207133a`、`8a860c7d5`、`84706f55f`、
-`7186e2728`、`5e383efbc`、`15a825082`），它们随 rebase 改写 hash，按标题找。
+补丁之外还有 16 个文档提交与 5 个版本戳提交（`git log --oneline v0.10.3-beta.5..HEAD`
+里标题以 `docs:` / `chore: stamp` 开头的那些），它们随 rebase 改写 hash，按标题找。
+
+**`custom.30` 的版本行随 rebase 变了，提交信息没变。** 那个 stamp 提交写于
+`v0.10.2` 基线，正文说「stamp as 0.10.2+custom.30」；rebase 把它的 diff 重放到
+`v0.10.3-beta.5` 上之后，实际写入的是 `0.10.3-beta.5+custom.30`。内容与已构建的
+release 产物一致，故不改号、也不改写历史，只在此记录这个不一致。
+
+**本次 rebase（`v0.10.2` → `v0.10.3-beta.5`）只改了三处源码**，都是重放后的
+编译或语义破损，不含新补丁：
+
+1. `crates/pa-tui/src/tool_card/ipython/tests.rs`：上游 `46e823d77` 给 `render`
+   加了 `level: Detail` 参数，漏改 5 个测试调用点。**上游自己编不过**——在
+   干净的上游 worktree 上 `cargo test -p pa-tui --lib` 复现 5× `E0061`、
+   `EXIT=101`。本仓补上实参（`Detail::Overview` 对 `Detail::Overview`，与同文件
+   既有 `All, All` 一致）。
+2. `crates/pa-tui/src/agents_view_state.rs`：上游 `69a826f98` 把 `build_rows` 的
+   activity 参数从 `&HashMap` 换成 `&ActivityCounts`，补丁 23 新增的测试仍在传
+   `HashMap`。改为 `ActivityCounts::default()`。
+3. `crates/pa-tui/src/input.rs`：`a_round_after_the_window_is_not_joined` 用
+   `windows_paste("\rx")` 当第二轮，而补丁 22 的「含换行即粘贴」规则会把
+   `"\rx"` 判成粘贴。夹具改为 `"yz"`（无换行），断言仍然只钉合并器。
+
+第 1 条会在上游修好时再冲突一次；届时删掉本地这 5 处改动即可。
 
 **版本号跳过 `custom.29`**：那个号属于 2026-10-30 装在安装目录里的构建，它的
 工作区改动从未提交（只剩 `prime-agent.exe` 和 `package.json` 里的号）。复用
@@ -57,7 +80,7 @@
 `custom.28` 之后直接跳到 `custom.30`。安装目录里当前那份的备份是
 `prime-agent.exe.bak-0.10.2+custom.29`。
 
-`1e9266975`（daemon 把 provider 头贴到 `Model` 上，现为补丁 29）**已定性为正式
+`0e7a77c18`（daemon 把 provider 头贴到 `Model` 上，现为补丁 29）**已定性为正式
 补丁，不是多余的**：上游 `c4c238ca0` 的 `opencode_headers::apply` 只在 provider
 是 `opencode`/`opencode-go` 时补 `x-opencode-session`，且**要求 `session_id`
 先进入 stream options**；而直连接缝（slash 命令、压缩、refine、图像路由）根本
@@ -65,13 +88,14 @@
 
 补丁 26–31 是补录的历史条目：它们一直在 `custom` 上（均为 HEAD 的祖先），但此前
 没进本清单，导致 rebase 时没人知道有这么几处需要重新应用或验证。其中
-`d4806c1c9`（补丁 28）新增了 257 行——`rpc/cron.rs`、`rpc/compaction.rs` 两个
+`7591913b8`（补丁 28）新增了 257 行——`rpc/cron.rs`、`rpc/compaction.rs` 两个
 新模块加一个调度器——体量大于清单里一半的条目，风险最高。
 
-**这八条目前只有上面表格里的一行，没有下面的展开章节和验证记录**（下面 ## 1–25 只
+**这十条目前只有上面表格里的一行，没有下面的展开章节和验证记录**（下面 ## 1–25 只
 覆盖补丁 1–25）。rebase 到这几条时按标题重放，并各自补一次验证——在补齐之前，
-d4806c1c9 的实际行为没有任何测试证据。补丁 33/34 的完整说明在提交正文里
-（`git log -1 d9b8bce95`、`git log -1 6d89e814a`），含各自的验证命令与结果。
+7591913b8 的实际行为没有任何测试证据。补丁 33–35 的完整说明在提交正文里
+（`git log -1 b1d04d02a`、`git log -1 a829c0881`、`git log -1 b1021aa09`），
+含各自的验证命令与结果。
 
 ---
 
@@ -97,13 +121,13 @@ d4806c1c9 的实际行为没有任何测试证据。补丁 33/34 的完整说明
 rebase 在这里做了「机械合并、语义错误」的典型动作。已改为往现有表里
 `entry().or_insert`，两边意图都保住。
 
-## 1. 顶栏显示 cwd（`9e4335a76`）
+## 1. 顶栏显示 cwd（`02941599f`）
 
 **行为**：会话顶栏的显示名附带当前工作目录，便于区分同名会话。
 
 **文件**：`crates/pa-tui/src/session_ui.rs`
 
-## 2. 内核忙等待 30s（`a1e9e51d2`）
+## 2. 内核忙等待 30s（`d8812d2cc`）
 
 **问题**：中断或快速切换后内核仍忙时，5 秒超时会过早报 "kernel busy"。
 
@@ -111,7 +135,7 @@ rebase 在这里做了「机械合并、语义错误」的典型动作。已改�
 
 **文件**：`crates/pa-core/src/kernel/shared.rs`
 
-## 3. 自定义主题（`77708a80b`）
+## 3. 自定义主题（`3d3d62df5`）
 
 **问题**：0.10.0 的 `load_theme` 硬编码只认 `prime/dark/light`，未知名字静默
 回退；`theme.rs` 里已有的 `load_theme_from_path` 没有任何调用者。
@@ -122,7 +146,7 @@ rebase 在这里做了「机械合并、语义错误」的典型动作。已改�
 **文件**：`crates/pa-tui/src/app.rs`、`crates/pa-tui/src/theme.rs`、
 `crates/pa-tui/src/session_ui/settings.rs`
 
-## 4. 黑窗修复（`ba9936cb1`）
+## 4. 黑窗修复（`5b934a67f`）
 
 **问题**：Windows 上 `DETACHED_PROCESS` 会静默取消 `CREATE_NO_WINDOW`，
 后台进程（MCP、更新器）各自弹出可见控制台窗口。
@@ -135,7 +159,7 @@ rebase 在这里做了「机械合并、语义错误」的典型动作。已改�
 
 **验证**：spawn 前基线枚举窗口，批量触发 MCP/更新路径 0 弹窗。
 
-## 5. turnHook（`4e54b50cb`）
+## 5. turnHook（`b432b9c82`）
 
 **行为**：`settings.json` 配置
 `"turnHook": {"command": "...", "timeoutMs": 30000}`。每个被接纳的 turn 在
@@ -149,7 +173,7 @@ rebase 在这里做了「机械合并、语义错误」的典型动作。已改�
 **验证**：`cargo test -p pa-core turn_hook --lib`（10 项）+ e2e 假 provider
 确认注入标记出现在请求体中、每 turn 一次。
 
-## 6. stopHook（`be481d871`）
+## 6. stopHook（`8af0afa8a`）
 
 **行为**：`settings.json` 配置
 `"stopHook": {"command": "...", "timeoutMs": 70000}`。运行结束时把本次转录
@@ -164,7 +188,7 @@ rebase 在这里做了「机械合并、语义错误」的典型动作。已改�
 **验证**：`cargo test -p pa-core stop_hook --lib`（8 项）+ e2e 假 hindsight
 服务收到 `POST /v1/default/banks/<bank>/memories`。
 
-## 7. stopHook 同步 spawn（`2c5fa729c`）
+## 7. stopHook 同步 spawn（`e78e1a927`）
 
 **问题**：在 `tokio::spawn` 的分离任务里启动 hook，一次性运行时会在任务
 被取消前退出，命令从未执行。
@@ -174,7 +198,7 @@ rebase 在这里做了「机械合并、语义错误」的典型动作。已改�
 
 **文件**：`crates/pa-core/src/session_engine/{stop_hook,turn_hook,wiring}.rs`
 
-## 8. updateGuard（`63da66dbf`）
+## 8. updateGuard（`5a730ac9d`）
 
 **行为**：`settings.json` 出现 `"updateGuard": {"hold": true, "message": "..."}`
 时拦截 `/update`、`prime-agent update` 与包自更新（`hold:false` 放行）；
@@ -184,7 +208,7 @@ rebase 在这里做了「机械合并、语义错误」的典型动作。已改�
 `crates/pa-cli/src/{self_update,client_update,client_settings,public_command}.rs`、
 `crates/pa-tui/src/{client_settings,session_ui/commands}.rs`
 
-## 9. 剪贴板中文乱码（`0a31a298f`）
+## 9. 剪贴板中文乱码（`c9db67a78`）
 
 **问题**：Windows 的 `clip.exe` 按控制台代码页（部分中文系统为 936/GBK）
 解释 stdin，UTF-8 中文粘贴后变乱码。
@@ -194,14 +218,14 @@ rebase 在这里做了「机械合并、语义错误」的典型动作。已改�
 
 **文件**：`crates/pa-tui/src/clipboard.rs`
 
-## 10. 多行粘贴折叠（`87c6ff653`）
+## 10. 多行粘贴折叠（`2c1c12a89`）
 
 **行为**：任何多行粘贴（≥2 行）都折叠为 `[paste #N +M lines]` 标记，
 展开后仍是原文；原阈值 ≥10 行只对超长粘贴生效。
 
 **文件**：`crates/pa-tui/src/editor/mod.rs`
 
-## 11. clean-kernel-state（`db9606852`）
+## 11. clean-kernel-state（`ed58d68fe`）
 
 **行为**：新增命令
 
@@ -218,7 +242,7 @@ prime-agent clean-kernel-state [--days <n>] [--dry-run] [--json]
 **验证**：6 项单测 + `cargo test -p pa-cli --lib`；实测 dry-run 与正式清理
 均正常（可回收数百个文件、数 GB 空间）。
 
-## 12. 空回复重试 + 流空闲超时（`8ed36305c`）
+## 12. 空回复重试 + 流空闲超时（`ce3bbb7c3`）
 
 **问题 A**：模型返回 `stopReason=stop` 但内容只有 thinking（无文本、无工具
 调用）时，prime-agent 视为正常结束，用户看到"突然停住"。在一份真实会话
@@ -245,7 +269,7 @@ prime-agent clean-kernel-state [--days <n>] [--dry-run] [--json]
 **限制**：`-p` 打印模式不经过该 daemon 路径，空回复重试仅对 TUI 生效；
 流空闲超时两条路径都生效。
 
-## 13. 停滞子代理重新派活 + 重试提示按回合隔离（`c1ff59958`）
+## 13. 停滞子代理重新派活 + 重试提示按回合隔离（`4d0434a99`）
 
 **问题 A**：补丁 12 的重试仍失败时，顶层会话会显示警告行，但子代理只会变
 为 idle。子代理仅在 **settle**（worker 队列清空）时由父代理收到
@@ -276,7 +300,7 @@ prime-agent clean-kernel-state [--days <n>] [--dry-run] [--json]
 
 **限制**：补丁 12/13 的空回复重试与停滞通知都走 `pa-daemon` 的 `AgentSessionEngine`，`-p` 打印模式和 `--mode rpc` 用的都是 `pa-cli/print_runtime.rs` 的 `HeadlessEngine`，不经过它——这两项的 TUI 之外入口都没有这些保护。
 
-## 14. 停滞通知只发给父代理一次（`99e5e75a0`）
+## 14. 停滞通知只发给父代理一次（`f45a7d32b`）
 
 **问题**：补丁 13 的通知无条件发送。子代理每开始一个新 turn 又空回复时都会再发
 一次，父代理收到通知后回消息、子代理再跑一轮又空又发——形成正反馈，父代理被
@@ -294,7 +318,7 @@ prime-agent clean-kernel-state [--days <n>] [--dry-run] [--json]
 `a_repeat_stall_does_not_flood_the_parent`：连续两轮空回复只产生 1 条通知，
 但每轮各 1 条警告行）。
 
-## 15. 收养无 bootstrap 记录的 kernel venv（`9428c8307`）
+## 15. 收养无 bootstrap 记录的 kernel venv（`5fc6b6f4e`）
 
 **问题**：`.bootstrap-version` 是 bootstrap 最后一步写的。若 bootstrap 在装完
 运行时、写记录前被杀（部署重启、多 worker 同时启动都常见），会留下一个完整可用
@@ -316,7 +340,7 @@ worker 的 kernel python 在该目录里运行，删除就会以"拒绝访问"�
 **验证**：`cargo test -p pa-core bootstrap:: --lib`（32 项，新增收养成功、
 运行时损坏不收养、已有记录不动、无记录但可用的 venv 绝不被删除）。
 
-## 16. 空回复重试前固定等 3 秒（`b9f39406d`）
+## 16. 空回复重试前固定等 3 秒（`beae8d01e`）
 
 **问题**：补丁 12 的重试是立即重发。空回复多由 provider 瞬时抖动引起，立刻重试
 往往撞上同一个抖动，等于白耗掉唯一一次重试。
@@ -330,7 +354,7 @@ worker 的 kernel python 在该目录里运行，删除就会以"拒绝访问"�
 **验证**：`cargo test -p pa-daemon empty_reply --lib`（5 项；整组耗时从 0.11s
 增至约 6.2s，证明等待真实生效）。
 
-## 17. 托盘显示 provider 与配置的模型名（`63d0d8c24`）
+## 17. 托盘显示 provider 与配置的模型名（`cd4dbf0e5`）
 
 **问题**：托盘右下角只渲染 `state.model.id`。`models.json` 的 `name` 字段完全没进入
 UI，`opencode-go` 和 `opencode-go-hr` 上的同一个 `deepseek-v4.1-flash` 因此显示成
@@ -356,7 +380,7 @@ UI，`opencode-go` 和 `opencode-go-hr` 上的同一个 `deepseek-v4.1-flash` �
 **验证**：`cargo check -p pa-tui --all-targets`。未加测试、未实机验证（按当时要求
 只做编译验证）。
 
-## 18. 推理档位一路带到线上（`27364d28d`）
+## 18. 推理档位一路带到线上（`e053de177`）
 
 **问题**：选 `max` 从来没有到达 provider。三处独立丢失，任一都足以让档位消失：
 
@@ -399,7 +423,7 @@ compat 补 `thinkingFormat: deepseek`）；三个 provider 的 `deepseek-v4.1-fl
 因端口占用失败，改动前即失败）。新增 5 个测试钉住行为，其中
 `the_switched_opencode_go_route_sends_max` 断言报文含
 `reasoning_effort: "max"` 与 `thinking: {type: enabled}`。
-## 19. `/speed` 开关持久化（`34d51cb83`）
+## 19. `/speed` 开关持久化（`577e1bc78`）
 
 **问题**：`/speed on` 只改内存字段，退出重开就没了。同类的 `chatDetail`（Ctrl+O）
 有持久化，`speed` 缺了那一半：`client_settings` trait 里根本没有 `speed_display`
@@ -420,7 +444,7 @@ getter 都在这里）、`crates/pa-core/src/settings/interactive_settings.rs`
 **验证**：`cargo test -p pa-core --lib settings::`（45 项通过，含新增
 `speed_display_persists_and_reads_back`，断言写入只动目标键、重载后读回为 true、
 再关掉读回为 false）。`cargo check --workspace --all-targets` 通过。
-## 20. 新增 `session clean` 清理空会话（`1f3d3419d`）
+## 20. 新增 `session clean` 清理空会话（`09244c28b`）
 
 **问题**：`prime-agent` 每次启动都创建会话文件，所以在第一个 prompt 之前关掉的启动会
 留下一个只有 bootstrap 记录的残file。它们不会自己消失，也不在任何列表里提示：本机
@@ -457,7 +481,7 @@ prime-agent session clean --json         # 供脚本消费
 （52 个有内容 + 2 个命名），54 个有内容会话字节数无变化。删除前已备份到
 `sessions-backup/empty-<时间戳>/`，82 个文件全部校验可解析。
 
-## 21. refine 的 passthrough 头改为合并（`79eb93266`）
+## 21. refine 的 passthrough 头改为合并（`1f7de0f08`）
 
 **问题**：上游 `v0.10.2`（`1ee259820`）让 `default_refiner_call` 接收会话合并后的
 请求头——Prime 的 `X-Prime-Team-ID` 走这条路——并在请求上设置它们。我们早先那条
@@ -479,7 +503,7 @@ stream_options.base.headers = Some(HashMap::from([("X-WB2A-Prompt-Mode", "passth
 `historical_refinement_is_read_only_on_trigger_not_in_hot_cache` 在 stash 掉本改动后
 同样失败，是上游 `v0.10.2` 的既有问题，与本补丁无关）。
 
-## 22. 多行粘贴在写边界被拆开时仍按粘贴处理（`c897dd537`）
+## 22. 多行粘贴在写边界被拆开时仍按粘贴处理（`7b3cd948b`）
 
 **问题**：往输入框粘贴多行文本会一行一行发出去，最后一行留在框里。把「一次终端写入」
 识别成一次粘贴的判定，要求换行串**两侧都有文本**：
@@ -508,7 +532,7 @@ if newline_run_start > 0 { return true }   // 前面必须有字符
 `cargo test -p pa-tui --lib` 1514 通过 / 8 失败，8 个失败属 `autocomplete`、
 `incident_notices`、`session_open_error`，是上游 `v0.10.2` 的既有问题。
 
-## 23. agents view 的 Model 列显示 `provider / model`（`f43f62944`）
+## 23. agents view 的 Model 列显示 `provider / model`（`61c6e2765`）
 
 **问题**：会话列表的 Model 列只渲染裸模型 id，`session_model` 还主动剥掉了 vendor 前缀
 （`id.rsplit('/').next()`）。多个 provider 提供同一个模型 id，
@@ -533,7 +557,7 @@ worker 的形状）或 summary 顶层的 `provider`（seeded / saved 的形状�
 Session 名列下限）。两处既有断言从裸 id 更新为带 provider 的形态。
 `cargo test -p pa-tui --lib` 1516 通过 / 8 失败，8 个失败为上游既有问题。
 
-## 24. 用户消息回显改为纯文本（`885e386e1`）
+## 24. 用户消息回显改为纯文本（`5f2bcd46d`）
 
 **问题**：提交后的用户消息块走 markdown 渲染，之后又把这个块里所有 span 的样式
 统一改写成 `userMessageText` 一种颜色。也就是说 **markdown 产生的粗体/斜体/删除线
@@ -567,7 +591,7 @@ Session 名列下限）。两处既有断言从裸 id 更新为带 provider 的�
 原本断言「用户消息的相对链接按所属视图 cwd 解析」，该路径已按设计移除，改为在
 **assistant 消息**上断言，保住 cwd 解析这条契约本身。
 
-## 25. 清掉 fork 的 CI 门（`8458466b1`）
+## 25. 清掉 fork 的 CI 门（`d1b357e93`）
 
 **问题**：merge gate 是 `cargo fmt --all --check` +
 `cargo clippy --workspace --all-targets -- -D warnings`，两条都不过。
@@ -595,7 +619,7 @@ Session 名列下限）。两处既有断言从裸 id 更新为带 provider 的�
 `pa-core` 41 项环境/上游失败）。顺带清掉了测试污染产生的
 `crates/pa-core/C:Users1...resolve-retry-<pid>` 垃圾文件。
 
-## 32. provider 报错不再冒充空回复 + refine 不再压低输出预算（`2911a478c`）
+## 32. provider 报错不再冒充空回复 + refine 不再压低输出预算（`11a542736`）
 
 两个行为缺陷，同一个来源：把「没拿到东西」的两种完全不同的原因混为一谈。
 
