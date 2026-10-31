@@ -139,7 +139,7 @@ clamp 文案，以及 `allowedModels visibleModels thinkingLevels thinkingBudget
 
 安装目录当时还没有 `.bak-…custom.32`，第一次覆盖就会造出一份同号而异行为的备份，
 正是上面 `custom.31` 那段描述的坑，第四次。所以 picker 修复之后升到 `custom.33`
-（`77C897D3…632C`）：`custom.32` = 无 picker 过滤的那份（14:40 构建，装过安装目录），
+（`0DC97924…CE80`）：`custom.32` = 无 picker 过滤的那份（14:40 构建，装过安装目录），
 `custom.33` = 含 `ecc278f82` 及其收尾的那份。
 
 **部署时必须同步 `package.json` 与 `.prime-agent-install`**：`--version` 优先读
