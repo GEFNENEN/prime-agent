@@ -194,6 +194,18 @@ git worktree remove --force ../pa-base-check
   测试隔离同理（配合独立的 `PRIME_AGENT_DAEMON_SOCKET`）。
 - 构建产物目录若通过 `CARGO_TARGET_DIR` 共享，跨分支构建前先确认没有
   stale 产物。
+- **增量编译在本仓库默认关闭**（`Cargo.toml` 的 `[profile.dev] incremental =
+  false`）。共享 target 目录时 `debug/incremental/` 会无界增长，成为 `debug/`
+  里最大的单一占用——它也是最不值钱的部分，删掉只损失重编速度。
+  动因是 `cargo test`：仓库没有 `[profile.test]`，它继承 `dev`，所以关掉 `dev`
+  的增量就把它一起盖住了。`cargo bench` 不在此列——`bench` 继承的是 `release`，
+  而 `release` 本来就默认不产生增量单位（只会建一个空的 `release/incremental/`），
+  本次改动与它无关。
+  代价是改一个模块要重编整 crate，不是改几行重编几行。
+  只在 `dev` 上关闭；`release` 不受影响，交付二进制的 debug-split 流程也不变。
+  临时需要时用 `CARGO_INCREMENTAL=1 cargo ...` 覆盖。
+  注意：关闭后 cargo 仍会建一个空的 `debug/incremental/`（0 个子目录），
+  这是正常的，不代表开关没生效——判断标准是重编后子目录数是否仍为 0。
 - MCP 服务器避免用 `npx` / `cmd /c` 启动（Windows 会弹控制台窗），改用
   `node <绝对路径>`；该路径属于使用者配置，不写入仓库。
 - 测试用假 provider 时，`openai-completions` 必须返回 SSE（`stream:true`），
