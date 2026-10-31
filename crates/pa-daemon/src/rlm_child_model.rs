@@ -131,7 +131,8 @@ pub fn resolve_child_model_unchecked(
 /// verification model) passes unchecked.
 ///
 /// The bound steers rather than refuses: a request it does not cover resolves to
-/// the nearest level it does (see [`SettingsManager::clamp_thinking_level`]),
+/// the nearest level it does (see
+/// [`pa_core::settings::SettingsManager::clamp_thinking_level`]),
 /// because a reasoning preference is a nudge, not a policy.
 ///
 /// # Errors
