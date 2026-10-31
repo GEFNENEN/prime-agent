@@ -103,18 +103,8 @@ impl Worker {
                 let available = registry
                     .refresh_available_models_with_trigger(trigger)
                     .await;
-                // Read BEFORE the limit, like the request path: the sign-in
-                // list must not shrink to what the picker may run. Read AFTER
-                // the refresh, though — an `AuthChange` refresh is precisely
-                // how a newly signed-in provider enters the picture.
-                let providers = configured_providers(&registry);
-                // The refresh must answer the same audience the request did,
-                // or opening `/model` would re-expand to the full catalog.
-                registry.apply_visibility(
-                    std::path::Path::new(&cwd),
-                    pa_core::settings::ModelAudience::Human,
-                );
-                let refreshed = catalog_payload(&registry, &available, &providers);
+                let refreshed =
+                    refreshed_payload(&mut registry, std::path::Path::new(&cwd), &available);
                 if refreshed != baseline {
                     events.send(OutboundFrame::model_catalog_changed());
                 }
@@ -136,6 +126,29 @@ impl Worker {
     }
 }
 
+/// The payload one refresh iteration serves, and the ORDER inside it matters
+/// twice over:
+///
+/// - `configuredProviders` is read from this iteration's own registry, after
+///   the refresh and before `apply_visibility`. After the refresh, because an
+///   `AuthChange` refresh is precisely how a provider that was just signed in
+///   enters the picture; before the limit, because [`configured_providers`]
+///   goes through `get_available`, which filters on `permits` — reading it
+///   after the limit would shrink the login panel's sign-in list down to what
+///   the picker may run.
+/// - The registry gets the limit at all, so the refresh answers the same
+///   audience the request did; otherwise opening `/model` would serve a narrow
+///   list and then re-expand when the refresh landed.
+fn refreshed_payload(
+    registry: &mut pa_core::models::ModelRegistry,
+    cwd: &std::path::Path,
+    available: &[pa_types::ai::Model],
+) -> Value {
+    let providers = configured_providers(registry);
+    registry.apply_visibility(cwd, pa_core::settings::ModelAudience::Human);
+    catalog_payload(registry, available, &providers)
+}
+
 /// The wire payload of one catalog snapshot: the catalog the picker may list —
 /// the full catalog minus unauthorized private Prime Inference models, minus
 /// anything outside the `visibleModels.human` limit — plus the providers that
@@ -149,6 +162,11 @@ impl Worker {
 /// `providers` is a separate argument because the caller reads it BEFORE
 /// attaching the limit (see [`configured_providers`]): hiding a model must not
 /// remove its provider from the login panel's sign-in list.
+///
+/// `available` is only the private-model entitlement probe — "may this account
+/// see this private model" — so it is read for membership and nothing else.
+/// That question is independent of visibility, which is why the two call sites
+/// may hand it over either side of `apply_visibility`.
 fn catalog_payload(
     registry: &pa_core::models::ModelRegistry,
     available: &[pa_types::ai::Model],
@@ -647,6 +665,72 @@ mod tests {
             "hiding a model must not remove its provider from sign-in: {payload}"
         );
         assert_canonical_models_order(&payload);
+    }
+
+    /// `refreshed_payload` reads `configuredProviders` before attaching the
+    /// limit, because `configured_providers` goes through `get_available` →
+    /// `permits`. Reading it after would shrink the login panel's sign-in list
+    /// to the models the picker may run, so an `other` provider whose only
+    /// model is hidden would vanish from the sign-in surface.
+    #[test]
+    fn a_refresh_reads_configured_providers_before_attaching_the_limit() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let agent_dir = dir.path().join("agent");
+        std::fs::create_dir_all(&agent_dir).expect("agent dir");
+        std::fs::write(
+            agent_dir.join("models.json"),
+            json!({ "providers": {
+                "yes": {
+                    "baseUrl": "https://yes.example", "apiKey": "yes-key",
+                    "api": "openai-completions",
+                    "models": [{ "id": "visible-one" }, { "id": "hidden-one" }]
+                },
+                "other": {
+                    "baseUrl": "https://other.example", "apiKey": "other-key",
+                    "api": "openai-completions",
+                    "models": [{ "id": "other-model" }]
+                }
+            }})
+            .to_string(),
+        )
+        .expect("models.json");
+        // The limit admits one model only: `other` and `yes/hidden-one` both
+        // become models the picker may not run, so reading the provider list
+        // after the limit would erase `other` from the sign-in surface.
+        std::fs::write(
+            agent_dir.join("settings.json"),
+            json!({ "visibleModels": { "enabled": true, "human": ["yes/visible-one"] } })
+                .to_string(),
+        )
+        .expect("settings.json");
+
+        let auth = pa_core::auth::AuthStorage::create(&agent_dir);
+        let mut registry =
+            pa_core::models::ModelRegistry::create(auth, agent_dir.join("models.json"));
+        let available = registry
+            .get_available()
+            .into_iter()
+            .cloned()
+            .collect::<Vec<_>>();
+        let payload = refreshed_payload(&mut registry, dir.path(), &available);
+
+        // The limit still applies to the models.
+        assert!(has_model(&payload, "visible-one"), "{payload}");
+        assert!(!has_model(&payload, "hidden-one"), "{payload}");
+        assert!(!has_model(&payload, "other-model"), "{payload}");
+        // ...but not to the sign-in list, which is the whole point of the order.
+        let providers = payload["configuredProviders"]
+            .as_array()
+            .expect("providers");
+        assert!(
+            providers.iter().any(|provider| provider == "other"),
+            "reading configuredProviders after the limit erases a provider whose \
+             models are all hidden, and the login panel stops offering it: {payload}"
+        );
+        assert!(
+            providers.iter().any(|provider| provider == "yes"),
+            "{payload}"
+        );
     }
 
     /// The payload's models are in canonical (provider, id) order: the
