@@ -725,23 +725,33 @@ impl RlmSubagentHost for InlineHost {
                 )
             } else {
                 let selector = pa_daemon::rlm_child_model::resolve_child_model_unchecked(
+                    &config.cwd,
                     &config.agent_dir,
                     request.model.as_deref(),
                     node.model_selector.lock().unwrap().as_deref(),
                     "subagent",
                 )
                 .map_err(|error| anyhow::anyhow!("{error:#}"))?;
-                pa_daemon::rlm_child_model::assert_thinking_supported(
+                // The daemonless path has no `allowedModels` gate (print sessions
+                // never carry one), but the ladder bound still steers the child.
+                let (clamped_thinking, _) = pa_daemon::rlm_child_model::clamp_child_thinking(
+                    &config.cwd,
                     &config.agent_dir,
                     request.thinking.as_deref(),
                     &selector,
                 )
                 .map_err(|error| anyhow::anyhow!("{error:#}"))?;
+                let effective_thinking = clamped_thinking
+                    .as_deref()
+                    .and_then(pa_ai::models::thinking_level_from_str);
                 let auth = pa_core::auth::AuthStorage::create(&config.agent_dir);
                 let registry = pa_core::models::ModelRegistry::create(
                     auth,
                     config.agent_dir.join("models.json"),
                 );
+                // The daemonless child resolution reads the agent catalog, so a
+                // `visibleModels` limit hides a model here too.
+                registry.apply_visibility(&config.cwd, pa_core::settings::ModelAudience::Agent);
                 let all: Vec<Model> = registry.get_all().to_vec();
                 let resolved =
                     pa_core::models::resolve_cli_model(/*cli_provider*/ None, &selector, &all);
@@ -751,7 +761,10 @@ impl RlmSubagentHost for InlineHost {
                 let Some(model) = resolved.model else {
                     return Err(anyhow::Error::msg("No matching model found."));
                 };
-                let thinking = pa_ai::models::clamp_thinking_level(&model, thinking);
+                let thinking = effective_thinking.map_or_else(
+                    || pa_ai::models::clamp_thinking_level(&model, thinking),
+                    |level| pa_ai::models::clamp_thinking_level(&model, level),
+                );
                 (selector, ChildLane::Real(Box::new(model)), thinking)
             };
             // The child's session: its own directory under the parent's

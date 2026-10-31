@@ -10,10 +10,9 @@ use super::load::from_value_lenient;
 use super::merge::{deep_merge, migrate};
 use super::storage::{SettingsScope, SettingsStorage};
 use super::types::{
-    QueueModeSetting, Settings, ThinkingLevelSetting, TransportSetting, UpdateChannel,
-    UpdateGuardSettings,
+    ModelAudience, QueueModeSetting, Settings, ThinkingLevelSetting, TransportSetting,
+    UpdateChannel, UpdateGuardSettings,
 };
-
 pub const RECENT_MODELS_LIMIT: usize = 20;
 pub const DEFAULT_IDLE_EVICTION_MINUTES: u64 = 90;
 
@@ -625,6 +624,100 @@ impl SettingsManager {
         (!patterns.is_empty()).then_some(patterns)
     }
 
+    /// The `visibleModels` limit for one audience: the model patterns that
+    /// audience may see and select. `None` keeps the limit off. A configured but
+    /// empty list is `Some(vec![])` — it hides every model, so an edited-in-empty
+    /// list never turns back into "show everything".
+    ///
+    /// Read from the merged scopes: a project overrides the box-level value
+    /// (unlike `allowedModels`, which stays global as the hard run-time gate).
+    #[must_use]
+    pub fn get_visible_models(&self, audience: ModelAudience) -> Option<Vec<String>> {
+        let setting = self.merged.visible_models.as_ref()?;
+        if !setting.enabled.unwrap_or(false) {
+            return None;
+        }
+        let patterns = match audience {
+            ModelAudience::Human => setting.human.as_ref(),
+            ModelAudience::Agent => setting.agent.as_ref().or(setting.human.as_ref()),
+        };
+        // An audience the document never names is unrestricted; a named-but-empty
+        // list hides everything.
+        patterns.cloned()
+    }
+
+    /// The `thinkingLevels` bound for one audience. `None` keeps the ladder
+    /// unrestricted; an empty list means "no reasoning": every request clamps to
+    /// `off`, which is the single level such a bound still produces.
+    #[must_use]
+    pub fn get_thinking_levels(
+        &self,
+        audience: ModelAudience,
+    ) -> Option<Vec<pa_types::ai::ModelThinkingLevel>> {
+        let setting = self.merged.thinking_levels.as_ref()?;
+        if !setting.enabled.unwrap_or(false) {
+            return None;
+        }
+        let levels = match audience {
+            ModelAudience::Human => setting.human.as_ref(),
+            ModelAudience::Agent => setting.agent.as_ref().or(setting.human.as_ref()),
+        }?;
+        Some(levels.iter().map(|level| level.model_level()).collect())
+    }
+
+    /// Clamp `requested` onto `thinkingLevels` for `audience` on `model`: the
+    /// nearest allowed level the model can actually run (see
+    /// [`pa_types::ai::clamp_thinking_level_within`]). The second element is the
+    /// warning to surface when the configuration names only levels this model
+    /// lacks — the request still runs, on the model's own clamp, rather than
+    /// failing the turn over a settings mismatch.
+    #[must_use]
+    pub fn clamp_thinking_level(
+        &self,
+        audience: ModelAudience,
+        model: &pa_types::ai::Model,
+        requested: pa_types::ai::ModelThinkingLevel,
+    ) -> (pa_types::ai::ModelThinkingLevel, Option<String>) {
+        let Some(allow) = self.get_thinking_levels(audience) else {
+            return (pa_types::ai::clamp_thinking_level(model, requested), None);
+        };
+        if allow.is_empty() {
+            // A deliberate "no reasoning": forced off, and never a warning.
+            return (pa_types::ai::ModelThinkingLevel::Off, None);
+        }
+        let reachable = pa_types::ai::supported_thinking_levels_within(model, &allow);
+        let clamped = pa_types::ai::clamp_thinking_level_within(model, requested, &allow);
+        let warning = reachable.is_empty().then(|| {
+            let allowed = allow
+                .iter()
+                .map(|level| level.wire_name())
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!(
+                "settings \"thinkingLevels\" allows only {allowed} and model \"{}/{}\" supports none of them; \
+                 running at \"{}\" — fix the setting or pick another model",
+                model.provider,
+                model.id,
+                clamped.wire_name(),
+            )
+        });
+        (clamped, warning)
+    }
+
+    /// The thinking levels one audience may pick on `model`: the intersect of
+    /// its supported ladder and the configured bound, which is the list a
+    /// client's picker may offer.
+    #[must_use]
+    pub fn pickable_thinking_levels(
+        &self,
+        audience: ModelAudience,
+        model: &pa_types::ai::Model,
+    ) -> Vec<pa_types::ai::ModelThinkingLevel> {
+        match self.get_thinking_levels(audience) {
+            Some(allow) => pa_types::ai::supported_thinking_levels_within(model, &allow),
+            None => pa_types::ai::get_supported_thinking_levels(model),
+        }
+    }
     /// The persisted default a fresh session starts from; the stored
     /// string is the same vocabulary `get_default_service_tier` parses.
     ///

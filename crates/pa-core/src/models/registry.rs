@@ -10,9 +10,11 @@ use pa_types::ai::{
 
 use crate::auth::manager::AuthStorage;
 use crate::auth::types::{AuthCredential, PRIME_INFERENCE_PROVIDER_ID};
+use crate::settings::ModelAudience;
 
 use super::catalog_chain;
 use super::custom::{apply_model_override, load_custom_models, merge_compat, CustomModelsResult};
+use super::visibility::{ModelVisibility, ModelVisibilityRefusal};
 
 /// Request-auth bits a provider can configure in models.json.
 #[derive(Debug, Clone, Default)]
@@ -49,6 +51,12 @@ pub enum SetModelSelectionError {
     ProviderUnauthenticated { provider: String },
     /// No such model in the catalog.
     NotFound { provider: String, model_id: String },
+    /// The model exists but the `visibleModels` limit hides it from this
+    /// audience: never a sign-in prompt, never a "pick another" invitation.
+    NotVisible {
+        selector: String,
+        refusal: Option<ModelVisibilityRefusal>,
+    },
 }
 
 impl SetModelSelectionError {
@@ -57,7 +65,9 @@ impl SetModelSelectionError {
     pub fn unauthenticated_provider(&self) -> Option<&str> {
         match self {
             SetModelSelectionError::ProviderUnauthenticated { provider } => Some(provider),
-            SetModelSelectionError::NotFound { .. } => None,
+            SetModelSelectionError::NotFound { .. } | SetModelSelectionError::NotVisible { .. } => {
+                None
+            }
         }
     }
 }
@@ -72,6 +82,10 @@ impl std::fmt::Display for SetModelSelectionError {
             SetModelSelectionError::NotFound { provider, model_id } => {
                 write!(f, "Model not found: {provider}/{model_id}")
             }
+            SetModelSelectionError::NotVisible { selector, refusal } => match refusal {
+                Some(refusal) => write!(f, "{refusal}"),
+                None => write!(f, "Model \"{selector}\" is not enabled (settings \"visibleModels\")"),
+            },
         }
     }
 }
@@ -95,6 +109,9 @@ pub struct ModelRegistry {
     /// The process-shared live catalog chain (`catalog_chain::catalog_for`);
     /// `resolve()` sources built-ins from it.
     catalog: std::sync::Arc<pa_models::ModelCatalog>,
+    /// The `visibleModels` limit attached by [`ModelRegistry::apply_visibility`]:
+    /// `None` means no limit (the historic behavior).
+    visibility: Option<ModelVisibility>,
 }
 
 /// Under a stored xAI subscription the provider's models switch onto the
@@ -179,6 +196,7 @@ impl ModelRegistry {
             model_request_headers: HashMap::new(),
             xai_model_sources: HashMap::new(),
             catalog,
+            visibility: None,
         };
         registry.load_models();
         registry
@@ -204,6 +222,32 @@ impl ModelRegistry {
         &self.models
     }
 
+    /// The `visibleModels` limit this registry enforces, when one is attached.
+    #[must_use]
+    pub fn visibility(&self) -> Option<&ModelVisibility> {
+        self.visibility.as_ref()
+    }
+
+    /// Attach the `visibleModels` limit for `audience`, read from the settings
+    /// scopes (a project overrides the box-level value). A registry without one
+    /// attached enforces no limit, so callers that reason about agent-reachable
+    /// models must opt in.
+    pub fn apply_visibility(&mut self, cwd: &Path, audience: ModelAudience) {
+        let Some(agent_dir) = self.models_json_path.as_deref().and_then(Path::parent) else {
+            return;
+        };
+        let settings = crate::settings::SettingsManager::create(cwd, agent_dir);
+        self.visibility = ModelVisibility::new(settings.get_visible_models(audience).as_deref());
+    }
+
+    /// Whether one selector passes the attached limit (always true without one).
+    #[must_use]
+    pub fn permits(&self, model: &Model) -> bool {
+        self.visibility
+            .as_ref()
+            .is_none_or(|limit| limit.permits(&format!("{}/{}", model.provider, model.id)))
+    }
+
     /// Models whose provider has configured auth. Private Prime Inference
     /// models need no extra gate: only the account's scoped snapshot and
     /// models.json list them. The per-model auth probe is answered once per
@@ -217,11 +261,14 @@ impl ModelRegistry {
                     .entry(model.provider.as_str())
                     .or_insert_with(|| self.has_configured_auth(model))
             })
+            .filter(|model| self.permits(model))
             .collect()
     }
 
     /// Models `rlm.find_models` may search: auth-configured, and not on a
     /// stale or expired provider credential (probe answered once per provider).
+    /// The visibility limit applies here too, so a model the agent may not use
+    /// never shows up in its own search.
     pub fn get_rlm_searchable_models(&self) -> Vec<&Model> {
         let mut status_by_provider: HashMap<&str, bool> = HashMap::new();
         self.get_available()
@@ -265,6 +312,19 @@ impl ModelRegistry {
         model_id: &str,
     ) -> Result<&Model, SetModelSelectionError> {
         let matches = |model: &Model| model.provider == provider && model.id == model_id;
+        // The visibility limit answers first: a hidden model must not resolve
+        // through any of the arms below (including the stale-auth one).
+        if let Some(model) = self.get_all().iter().find(|model| matches(model)) {
+            if !self.permits(model) {
+                return Err(SetModelSelectionError::NotVisible {
+                    selector: format!("{provider}/{model_id}"),
+                    refusal: self
+                        .visibility
+                        .as_ref()
+                        .map(|limit| limit.refusal(&format!("{provider}/{model_id}"))),
+                });
+            }
+        }
         if let Some(model) = self
             .get_available()
             .into_iter()

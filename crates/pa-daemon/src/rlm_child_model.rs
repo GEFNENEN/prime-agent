@@ -4,7 +4,7 @@
 
 use std::path::{Path, PathBuf};
 
-use anyhow::{anyhow, bail, Result};
+use anyhow::{anyhow, Result};
 use pa_ai::models::{get_supported_thinking_levels, thinking_level_from_str};
 use pa_core::kernel::rlm_runtime::{find_rlm_model_matches, RlmModelInfo};
 
@@ -24,10 +24,16 @@ pub const ANSWER_TEXT_MAX_CHARS: usize = 65_536;
 const ELLIPSIS: &str = "...";
 
 /// The model catalog the RLM surface resolves against: the same
-/// credential-backed list `rlm.find_models` searches (entitled `internal/*` models resolve).
+/// credential-backed list `rlm.find_models` searches (entitled `internal/*`
+/// models resolve), bounded by the agent `visibleModels` limit — a model the
+/// agent may not run is not a spawn candidate either.
 #[must_use]
-pub fn catalog_models(agent_dir: &Path) -> Vec<RlmModelInfo> {
-    let registry = crate::state_getters::worker_model_registry(agent_dir);
+pub fn catalog_models(cwd: &Path, agent_dir: &Path) -> Vec<RlmModelInfo> {
+    let registry = crate::state_getters::worker_model_registry(
+        cwd,
+        agent_dir,
+        pa_core::settings::ModelAudience::Agent,
+    );
     registry
         .get_rlm_searchable_models()
         .into_iter()
@@ -50,13 +56,14 @@ pub fn catalog_models(agent_dir: &Path) -> Vec<RlmModelInfo> {
 /// # Errors
 /// Returns an error when the reference cannot be resolved or the selector is outside the allowlist.
 pub fn resolve_child_model(
+    cwd: &Path,
     agent_dir: &Path,
     reference: Option<&str>,
     parent_model: Option<&str>,
     target: &str,
     allowlist: &crate::model_allowlist::DaemonAllowlist,
 ) -> Result<String> {
-    let model = resolve_child_model_unchecked(agent_dir, reference, parent_model, target)?;
+    let model = resolve_child_model_unchecked(cwd, agent_dir, reference, parent_model, target)?;
     crate::model_allowlist::assert_allowed(allowlist, &model)?;
     Ok(model)
 }
@@ -64,11 +71,13 @@ pub fn resolve_child_model(
 /// The resolution before the allowlist gate: `None` inherits the parent model; a reference resolves
 /// parent equality first, then an exact catalog selector, then a unique short-form match.
 /// Public for the daemonless print host: print sessions do not enforce
-/// `allowedModels`, so its children do not either.
+/// `allowedModels`, so its children do not either — the `visibleModels` agent
+/// limit still applies, because it is what decides which models exist at all.
 ///
 /// # Errors
 /// Returns an error when the reference cannot be resolved against the catalog.
 pub fn resolve_child_model_unchecked(
+    cwd: &Path,
     agent_dir: &Path,
     reference: Option<&str>,
     parent_model: Option<&str>,
@@ -86,7 +95,7 @@ pub fn resolve_child_model_unchecked(
             return Ok(parent.to_string());
         }
     }
-    let candidates = catalog_models(agent_dir);
+    let candidates = catalog_models(cwd, agent_dir);
     let selector_of = |model: &RlmModelInfo| format!("{}/{}", model.provider, model.id);
     if let Some(exact) = candidates
         .iter()
@@ -117,46 +126,64 @@ pub fn resolve_child_model_unchecked(
     Err(model_unavailable_error(reference, target, &candidates))
 }
 
-/// A requested thinking level must be supported by the resolved model;
-/// an out-of-catalog model (a scripted verification model) passes unchecked.
+/// A requested thinking level must be supported by the resolved model, and by
+/// the agent `thinkingLevels` bound; an out-of-catalog model (a scripted
+/// verification model) passes unchecked.
+///
+/// The bound steers rather than refuses: a request it does not cover resolves to
+/// the nearest level it does (see [`SettingsManager::clamp_thinking_level`]),
+/// because a reasoning preference is a nudge, not a policy.
 ///
 /// # Errors
-/// Returns an error when the supported levels exclude the requested one (the message lists them);
-/// the unchecked cases pass.
-pub fn assert_thinking_supported(
+/// Returns an error when the model supports no level at all that the request
+/// meant (the message lists them); the unchecked cases pass.
+pub fn clamp_child_thinking(
+    cwd: &Path,
     agent_dir: &Path,
     level: Option<&str>,
     selector: &str,
-) -> Result<()> {
+) -> Result<(Option<String>, Option<String>)> {
     let Some(level) = level else {
-        return Ok(());
+        return Ok((None, None));
     };
+    let resolved = level.to_string();
     let Some((provider, id)) = selector.split_once('/') else {
-        return Ok(());
+        return Ok((Some(resolved), None));
     };
-    let registry = crate::state_getters::worker_model_registry(agent_dir);
+    let registry = crate::state_getters::worker_model_registry(
+        cwd,
+        agent_dir,
+        pa_core::settings::ModelAudience::Agent,
+    );
     let Some(model) = registry
         .get_rlm_searchable_models()
         .into_iter()
         .find(|model| model.provider == provider && model.id == id)
     else {
-        return Ok(());
+        return Ok((Some(resolved), None));
     };
-    let supported = get_supported_thinking_levels(model);
     let Some(requested) = thinking_level_from_str(level) else {
-        return Ok(());
+        return Ok((Some(resolved), None));
     };
-    if supported.contains(&requested) {
-        return Ok(());
-    }
-    let levels = supported
-        .iter()
-        .map(|level| level.wire_name())
-        .collect::<Vec<_>>()
-        .join(", ");
-    bail!(
-        "Requested thinking level \"{level}\" is not supported by model \"{selector}\"; supported levels: {levels}"
-    );
+    let settings = pa_core::settings::SettingsManager::create(cwd, agent_dir);
+    let (clamped, warning) =
+        settings.clamp_thinking_level(pa_core::settings::ModelAudience::Agent, model, requested);
+    let effective = clamped.wire_name().to_string();
+    // A requested level the model lacks is still the model's own clamp (the
+    // pre-existing behavior), not an error: the child runs at what it can.
+    let note = warning.or_else(|| {
+        (clamped != requested).then(|| {
+            let supported = get_supported_thinking_levels(model)
+                .iter()
+                .map(|level| level.wire_name())
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!(
+                "thinking level \"{level}\" resolved to \"{effective}\" for model \"{selector}\" (supported: {supported})"
+            )
+        })
+    });
+    Ok((Some(effective), note))
 }
 
 /// The directory a child starts in: a requested `cwd` resolves against the
@@ -269,6 +296,7 @@ mod tests {
         write_catalog(dir.path());
         let resolved = resolve_child_model(
             dir.path(),
+            dir.path(),
             None,
             Some("test-provider/glm-5.3"),
             "subagent",
@@ -279,6 +307,7 @@ mod tests {
         // Parent equality short-circuits even a catalog refresh miss.
         let resolved = resolve_child_model(
             dir.path(),
+            dir.path(),
             Some("Test-Provider/GLM-5.3"),
             Some("test-provider/glm-5.3"),
             "subagent",
@@ -287,6 +316,7 @@ mod tests {
         .unwrap();
         assert_eq!(resolved, "test-provider/glm-5.3");
         let resolved = resolve_child_model(
+            dir.path(),
             dir.path(),
             Some("test-provider/glm-5.3-turbo"),
             Some("test-provider/glm-5.3"),
@@ -297,6 +327,7 @@ mod tests {
         assert_eq!(resolved, "test-provider/glm-5.3-turbo");
         let resolved = resolve_child_model(
             dir.path(),
+            dir.path(),
             Some("glm-5.3-turbo"),
             Some("test-provider/glm-5.3"),
             "subagent",
@@ -305,6 +336,7 @@ mod tests {
         .unwrap();
         assert_eq!(resolved, "test-provider/glm-5.3-turbo");
         let error = resolve_child_model(
+            dir.path(),
             dir.path(),
             None,
             None,
@@ -327,6 +359,7 @@ mod tests {
         // An explicit reference outside the allowlist fails with the typed refusal.
         let error = resolve_child_model(
             dir.path(),
+            dir.path(),
             Some("test-provider/glm-5.3"),
             None,
             "subagent",
@@ -347,6 +380,7 @@ mod tests {
         // inheritance is a resolution, not an exemption.
         let error = resolve_child_model(
             dir.path(),
+            dir.path(),
             None,
             Some("test-provider/glm-5.3"),
             "subagent",
@@ -361,6 +395,7 @@ mod tests {
         );
         let resolved = resolve_child_model(
             dir.path(),
+            dir.path(),
             Some("test-provider/glm-5.3"),
             None,
             "subagent",
@@ -369,6 +404,7 @@ mod tests {
         .unwrap();
         assert_eq!(resolved, "test-provider/glm-5.3");
         let resolved = resolve_child_model(
+            dir.path(),
             dir.path(),
             Some("test-provider/glm-5.3"),
             None,
@@ -387,6 +423,7 @@ mod tests {
         // close matches, a matching-nothing reference does not (the
         // reference prefixes the test provider, never real defaults).
         let error = resolve_child_model(
+            dir.path(),
             dir.path(),
             Some("test-provi"),
             Some("test-provider/glm-5.3"),
@@ -408,6 +445,7 @@ mod tests {
         );
         let error = resolve_child_model(
             dir.path(),
+            dir.path(),
             Some("zzz"),
             Some("test-provider/glm-5.3"),
             "subagent",
@@ -421,16 +459,30 @@ mod tests {
     fn thinking_support_follows_the_resolved_model() {
         let dir = tempfile::TempDir::new().unwrap();
         write_catalog(dir.path());
-        // The custom catalog model is non-reasoning: only "off" is supported.
-        assert_thinking_supported(dir.path(), Some("off"), "test-provider/glm-5.3").unwrap();
-        let error = assert_thinking_supported(dir.path(), Some("high"), "test-provider/glm-5.3")
-            .unwrap_err();
+        // The custom catalog model is non-reasoning: only "off" is supported, so
+        // a stronger request is steered down rather than refused, and the
+        // steering is reported instead of happening silently.
+        clamp_child_thinking(dir.path(), dir.path(), Some("off"), "test-provider/glm-5.3").unwrap();
+        let (level, note) = clamp_child_thinking(
+            dir.path(),
+            dir.path(),
+            Some("high"),
+            "test-provider/glm-5.3",
+        )
+        .unwrap();
+        assert_eq!(level.as_deref(), Some("off"));
         assert_eq!(
-            error.to_string(),
-            "Requested thinking level \"high\" is not supported by model \"test-provider/glm-5.3\"; supported levels: off"
+            note.as_deref(),
+            Some(
+                "thinking level \"high\" resolved to \"off\" for model \"test-provider/glm-5.3\" (supported: off)"
+            )
         );
-        // A model outside the catalog (scripted verification models) passes.
-        assert_thinking_supported(dir.path(), Some("high"), "scripted/faux-1").unwrap();
+        // A model outside the catalog (scripted verification models) passes
+        // with its request intact.
+        let (level, note) =
+            clamp_child_thinking(dir.path(), dir.path(), Some("high"), "scripted/faux-1").unwrap();
+        assert_eq!(level.as_deref(), Some("high"));
+        assert!(note.is_none(), "{note:?}");
     }
 
     /// The child-propagation regression: a spawned child resolves an
@@ -496,10 +548,11 @@ mod tests {
         )
         .unwrap();
 
-        assert!(catalog_models(dir.path())
+        assert!(catalog_models(dir.path(), dir.path())
             .iter()
             .any(|model| model.id == "internal/glm-5.3-fast"));
         let resolved = resolve_child_model(
+            dir.path(),
             dir.path(),
             Some("prime-inference/internal/glm-5.3-fast"),
             Some("prime-inference/z-ai/glm-5.3"),
@@ -510,6 +563,7 @@ mod tests {
         assert_eq!(resolved, "prime-inference/internal/glm-5.3-fast");
         let resolved = resolve_child_model(
             dir.path(),
+            dir.path(),
             Some("internal/glm-5.3-fast"),
             Some("prime-inference/z-ai/glm-5.3"),
             "subagent",
@@ -517,14 +571,21 @@ mod tests {
         )
         .unwrap();
         assert_eq!(resolved, "prime-inference/internal/glm-5.3-fast");
-        // The spawn-time thinking check follows the resolved entitlement.
-        assert_thinking_supported(
+        // The spawn-time thinking resolution follows the resolved entitlement.
+        assert!(
+            clamp_child_thinking(
+                dir.path(),
+                dir.path(),
+                Some("high"),
+                "prime-inference/internal/glm-5.3-fast",
+            )
+            .unwrap()
+            .1
+            .is_none(),
+            "a level the model carries needs no note"
+        );
+        clamp_child_thinking(
             dir.path(),
-            Some("high"),
-            "prime-inference/internal/glm-5.3-fast",
-        )
-        .unwrap();
-        assert_thinking_supported(
             dir.path(),
             Some("off"),
             "prime-inference/internal/glm-5.3-fast",
@@ -589,13 +650,14 @@ mod tests {
         )
         .unwrap();
         let selector = format!("openai-codex/{PROBE_ID}");
-        let catalog = catalog_models(dir.path());
+        let catalog = catalog_models(dir.path(), dir.path());
         let probe = catalog
             .iter()
             .find(|model| model.selector() == selector)
             .expect("the fetched entry lists for find_models");
         assert_eq!(probe.name, "GPT-6 Probe");
         let resolved = resolve_child_model(
+            dir.path(),
             dir.path(),
             Some(&selector),
             Some("prime-inference/z-ai/glm-5.3"),
@@ -606,6 +668,7 @@ mod tests {
         assert_eq!(resolved, selector);
         let resolved = resolve_child_model(
             dir.path(),
+            dir.path(),
             Some(PROBE_ID),
             Some("prime-inference/z-ai/glm-5.3"),
             "subagent",
@@ -613,14 +676,17 @@ mod tests {
         )
         .unwrap();
         assert_eq!(resolved, selector);
-        // The spawn-time thinking check follows the fetched entry's map:
-        // xhigh is explicitly mapped, minimal is explicitly nulled out.
-        assert_thinking_supported(dir.path(), Some("xhigh"), &selector).unwrap();
-        let error = assert_thinking_supported(dir.path(), Some("minimal"), &selector).unwrap_err();
-        assert!(
-            error.to_string().contains("not supported by model"),
-            "{error}"
-        );
+        // The spawn-time thinking resolution follows the fetched entry's map:
+        // xhigh is explicitly mapped and passes through; minimal is explicitly
+        // nulled out, so it is steered to the nearest level the model can run.
+        let (level, note) =
+            clamp_child_thinking(dir.path(), dir.path(), Some("xhigh"), &selector).unwrap();
+        assert_eq!(level.as_deref(), Some("xhigh"));
+        assert!(note.is_none(), "{note:?}");
+        let (level, note) =
+            clamp_child_thinking(dir.path(), dir.path(), Some("minimal"), &selector).unwrap();
+        assert_eq!(level.as_deref(), Some("low"), "raised to the lowest level");
+        assert!(note.expect("steering is reported").contains("resolved to"));
     }
 
     #[test]

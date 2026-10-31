@@ -83,8 +83,17 @@ impl Worker {
                 }),
             )
         };
-        // Candidates: scoped entries (available ones only), else the available catalog.
-        let registry = crate::state_getters::worker_model_registry(&self.config.agent_dir);
+        // Candidates: scoped entries (available ones only), else the available
+        // catalog. Cycling is a human surface: `visibleModels.human` bounds it.
+        let cwd = {
+            let core = self.core.lock().unwrap();
+            core.cwd.clone()
+        };
+        let registry = crate::state_getters::worker_model_registry(
+            std::path::Path::new(&cwd),
+            &self.config.agent_dir,
+            pa_core::settings::ModelAudience::Human,
+        );
         let available: Vec<pa_types::ai::Model> =
             registry.get_available().into_iter().cloned().collect();
         let is_scoped = !scoped.is_empty();

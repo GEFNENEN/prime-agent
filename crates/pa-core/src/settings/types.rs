@@ -70,7 +70,6 @@ pub enum QueueModeSetting {
     #[serde(alias = "oneAtATime")]
     OneAtATime,
 }
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum TransportSetting {
@@ -199,6 +198,38 @@ pub struct ThinkingBudgetsSettings {
     pub medium: Option<u64>,
     pub high: Option<u64>,
 }
+
+/// The two audiences a catalog or ladder limit serves: the human driving the
+/// client (`/model`, the picker, `prime-agent model list`) and the agent's own
+/// machinery (`rlm.find_models`, `rlm.spawn(model=)`, provider failover, the
+/// auxiliary/image routes). Both are optional so an omitted `agent` inherits
+/// `human`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ModelAudience {
+    Human,
+    Agent,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelAudienceSetting<T> {
+    /// Omission keeps the limit off (the historic behavior).
+    pub enabled: Option<bool>,
+    pub human: Option<Vec<T>>,
+    /// Omitted inherits `human`: the safer audience is not accidentally wider.
+    pub agent: Option<Vec<T>>,
+}
+
+/// Settings `visibleModels`: which models the human and the agent may see and
+/// select. `enabled: true` with an empty list for an audience hides every model
+/// from it (fail-closed: the empty list hides, never shows, everything).
+pub type VisibleModelsSetting = ModelAudienceSetting<String>;
+
+/// Settings `thinkingLevels`: the reasoning ladder each audience may use. The
+/// request is steered onto `allow ∩ model-supported` (never rejected), so an
+/// empty list for an audience means "no reasoning at all" — the single value it
+/// still produces is `off`.
+pub type ThinkingLevelsSetting = ModelAudienceSetting<ThinkingLevelSetting>;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -432,6 +463,12 @@ pub struct Settings {
     /// Rust-only daemon-level model allowlist: a model outside fails loudly instead
     /// of resolving, with no fallback. `None` is unrestricted.
     pub allowed_models: Option<Vec<String>>,
+    /// `visibleModels`: the model whitelist per audience (see
+    /// [`VisibleModelsSetting`]). Project scope overrides global.
+    pub visible_models: Option<VisibleModelsSetting>,
+    /// `thinkingLevels`: the reasoning ladder per audience (see
+    /// [`ThinkingLevelsSetting`]). Project scope overrides global.
+    pub thinking_levels: Option<ThinkingLevelsSetting>,
     pub tree_filter_mode: Option<String>,
     /// `chatDetail`: the conversation-detail level Ctrl+O cycles and persists
     /// ("overview"/"details"/"all"); `None` reads as the `overview` startup level.

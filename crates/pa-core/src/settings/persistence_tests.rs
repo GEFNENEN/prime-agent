@@ -2,7 +2,9 @@ use std::sync::Arc;
 
 use serde_json::{json, Value};
 
-use super::{InMemorySettingsStorage, SettingsManager, SettingsScope, SettingsStorage};
+use super::{
+    InMemorySettingsStorage, ModelAudience, SettingsManager, SettingsScope, SettingsStorage,
+};
 
 fn fixture(content: &str) -> (Arc<InMemorySettingsStorage>, SettingsManager) {
     let storage = Arc::new(InMemorySettingsStorage::default());
@@ -364,4 +366,121 @@ fn project_percentage_overrides_global_and_stale_writes_preserve_external_settin
     first.set_compaction_threshold_percent(90.0).unwrap();
     first.reload().unwrap();
     assert_eq!(first.get_compaction_threshold_percent(), 60.5);
+}
+
+/// `visibleModels` and `thinkingLevels` read the MERGED scopes: a project file
+/// overrides the box-level value (unlike `allowedModels`, which stays global).
+#[test]
+fn audience_limits_are_project_overridable() {
+    let global = r#"{
+        "visibleModels": { "enabled": true, "human": ["yes/*"], "agent": ["yes/a"] },
+        "thinkingLevels": { "enabled": true, "human": ["high"], "agent": ["high"] }
+    }"#;
+    let (storage, manager) = fixture(global);
+    assert_eq!(
+        manager.get_visible_models(ModelAudience::Human),
+        Some(vec!["yes/*".to_string()])
+    );
+    // `agent` was named, so it does not inherit.
+    assert_eq!(
+        manager.get_visible_models(ModelAudience::Agent),
+        Some(vec!["yes/a".to_string()])
+    );
+
+    storage
+        .with_lock(SettingsScope::Project, &mut |_| {
+            Some(r#"{ "visibleModels": { "enabled": true, "human": ["yes/b"] } }"#.to_string())
+        })
+        .unwrap();
+    let narrowed = SettingsManager::from_storage(storage);
+    assert_eq!(
+        narrowed.get_visible_models(ModelAudience::Human),
+        Some(vec!["yes/b".to_string()]),
+        "the project overrides the box value"
+    );
+    // `thinkingLevels` was not overridden, so the box-level bound survives.
+    assert_eq!(
+        narrowed.get_thinking_levels(ModelAudience::Human),
+        Some(vec![pa_types::ai::ModelThinkingLevel::High])
+    );
+}
+
+/// An enabled limit with an empty list hides everything (fail-closed), and an
+/// absent or disabled limit is `None` (unrestricted).
+#[test]
+fn an_empty_audience_list_hides_everything() {
+    let (_, manager) =
+        fixture(r#"{ "visibleModels": { "enabled": true, "human": [], "agent": [] } }"#);
+    assert_eq!(
+        manager.get_visible_models(ModelAudience::Human),
+        Some(Vec::new()),
+        "a configured empty list is a limit that hides everything, never no limit"
+    );
+    assert_eq!(
+        manager.get_thinking_levels(ModelAudience::Human),
+        None,
+        "an absent thinkingLevels stays unrestricted"
+    );
+
+    let (_, off) = fixture(r#"{ "visibleModels": { "enabled": false, "human": [] } }"#);
+    assert_eq!(off.get_visible_models(ModelAudience::Human), None);
+}
+
+/// The settings ladder bound steers a request onto the allowed levels, reports
+/// the unmeetable case instead of failing the turn, and treats an empty list as
+/// "no reasoning".
+#[test]
+fn the_thinking_levels_bound_steers_and_reports() {
+    let reasoning: pa_types::ai::Model = serde_json::from_value(json!({
+        "id": "m", "name": "m", "api": "openai-completions", "provider": "yes",
+        "baseUrl": "https://example.com", "reasoning": true, "input": ["text"],
+        "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 },
+        "contextWindow": 1000, "maxTokens": 100
+    }))
+    .unwrap();
+    let plain: pa_types::ai::Model = serde_json::from_value(json!({
+        "id": "plain", "name": "plain", "api": "openai-completions", "provider": "yes",
+        "baseUrl": "https://example.com", "reasoning": false, "input": ["text"],
+        "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 },
+        "contextWindow": 1000, "maxTokens": 100
+    }))
+    .unwrap();
+
+    let (_, manager) =
+        fixture(r#"{ "thinkingLevels": { "enabled": true, "human": ["high"], "agent": [] } }"#);
+    // A weaker request is raised onto the only allowed level.
+    assert_eq!(
+        manager.clamp_thinking_level(
+            ModelAudience::Human,
+            &reasoning,
+            pa_types::ai::ModelThinkingLevel::Low
+        ),
+        (pa_types::ai::ModelThinkingLevel::High, None)
+    );
+    // The picker offers the intersection, not the whole ladder.
+    assert_eq!(
+        manager.pickable_thinking_levels(ModelAudience::Human, &reasoning),
+        vec![pa_types::ai::ModelThinkingLevel::High]
+    );
+    // An empty agent list means no reasoning at all.
+    assert_eq!(
+        manager
+            .clamp_thinking_level(
+                ModelAudience::Agent,
+                &reasoning,
+                pa_types::ai::ModelThinkingLevel::High
+            )
+            .0,
+        pa_types::ai::ModelThinkingLevel::Off
+    );
+    // A model that cannot meet the bound runs on its own clamp and reports it.
+    let (level, warning) = manager.clamp_thinking_level(
+        ModelAudience::Human,
+        &plain,
+        pa_types::ai::ModelThinkingLevel::High,
+    );
+    assert_eq!(level, pa_types::ai::ModelThinkingLevel::Off);
+    let warning = warning.expect("the unmeetable bound is reported");
+    assert!(warning.contains("thinkingLevels"), "{warning}");
+    assert!(warning.contains("supports none"), "{warning}");
 }
