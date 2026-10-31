@@ -49,19 +49,20 @@
 | 34 | `a829c0881` | feat | ACP：Python cell 按代码首行命名，并上报上下文用量 |
 | 35 | `b1021aa09` | feat | TUI：`PASTE_TRACE` 打印粘贴路径上的原始终端事件 |
 | 36 | `b164aae2b` | feat | 按受众（人 / agent）限定可见模型与推理档位：`visibleModels`、`thinkingLevels` |
-| 37 | `ecc278f82` | fix | `/model` picker 接上 `visibleModels.human`（收尾见 `5f1a9eb75`） |
+| 37 | `ecc278f82` | fix | `/model` picker 接上 `visibleModels.human`（收尾：`5f1a9eb75`、`b5bf41d60`） |
 
-补丁之外还有三类提交不进表格：文档提交、版本戳提交，以及 2 个 rebase 修复提交
+补丁之外还有四类提交不进表格：文档提交、版本戳提交、2 个 rebase 修复提交
 （`01bfb8634`、`58af8100b`，改 `pa-tui` 的测试调用点，见下文本次 rebase 的三处
-源码改动）。文档与版本戳提交随 rebase 改写 hash，按标题找
-（`git log --oneline v0.10.3-beta.5..HEAD` 里标题以 `docs:` / `chore: stamp`
-开头的那些）；修复提交是重放破损的修补，不是本地补丁。
+源码改动），以及已入表补丁的收尾提交（见下段）。文档与版本戳提交随 rebase 改写
+hash，按标题找（`git log --oneline v0.10.3-beta.5..HEAD` 里标题以 `docs:` /
+`chore: stamp` 开头的那些）；修复提交是重放破损的修补，不是本地补丁。
 
 表格按**行为补丁**计数，所以行数与提交数**不相等**：同一个补丁的后续收尾提交
-（对已入表补丁的修正、重构、补测试）并入该行的摘要，不另开一行——`5f1a9eb75`
-就是这样并进第 37 行的。想核对总数时用 `git log --oneline v0.10.3-beta.5..HEAD`
-与表格、`docs:`、`chore: stamp`、rebase 修复逐一对照，别指望一个固定的算术式：
-任何一侧新增提交都会让它过期，所以这里不写死数字。
+（对已入表补丁的修正、重构、补测试）并入该行的摘要，不另开一行——第 37 行就是
+这样收了 `ecc278f82` 之后的两个（`5f1a9eb75` 重构、`b5bf41d60` 补测试）。想核对
+总数时用 `git log --oneline v0.10.3-beta.5..HEAD` 与表格、`docs:`、`chore: stamp`、
+rebase 修复、收尾提交逐项对照；别指望一个固定的算术式，任何一侧新增提交都会让
+它过期，所以这里不写死数字。
 
 **`custom.30` 的版本行随 rebase 变了，提交信息没变。** 那个 stamp 提交写于
 `v0.10.2` 基线，正文说「stamp as 0.10.2+custom.30」；rebase 把它的 diff 重放到
@@ -86,6 +87,14 @@ rebase 之后的新树。**本次同步因此把新树升到 `custom.31`**，`cu
    `"\rx"` 判成粘贴。夹具改为 `"yz"`（无换行），断言仍然只钉合并器。
 
 第 1 条会在上游修好时再冲突一次；届时删掉本地这 5 处改动即可。
+
+**第 3 条的提交曾把整个文件的行尾翻成 CRLF**（2026-10-31 补记，已修）：
+`58af8100b` 重放这段夹具改动时，把 `crates/pa-tui/src/input.rs` 全文件写成了
+CRLF——一段 6 增 4 删的改动因此显示成 1431/1429 的整文件翻转，而它是
+`crates/` 下唯一一个 CRLF 的 `.rs`。`3777f8c70` 只转回 LF（对上一提交
+`git diff --ignore-cr-at-eol` 为空，内容零改动），现在该文件对基线的真实 diff
+是 109/35。`input.rs` 承载补丁 22、33、35，是 rebase 高发区：下次同步前值得先跑
+`git diff --ignore-cr-at-eol` 确认没有整文件噪声，否则会撞成全文冲突。
 
 **版本号再跳过 `custom.31`**（2026-10-31 补记）：`custom.31` 的 stamp 提交
 （`28d5ce9a3`）只改 `Cargo.toml` 与 `Cargo.lock`，它标记的是「rebase 到
