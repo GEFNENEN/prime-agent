@@ -77,6 +77,14 @@ rebase 之后的新树。**本次同步因此把新树升到 `custom.31`**，`cu
 
 第 1 条会在上游修好时再冲突一次；届时删掉本地这 5 处改动即可。
 
+**版本号再跳过 `custom.31`**（2026-10-31 补记）：`custom.31` 的 stamp 提交只改
+`Cargo.toml` 与 `Cargo.lock`，它标记的是「rebase 到 `v0.10.3-beta.5` 之后的那棵树」，
+**不含**按受众限制可见模型与推理档位的两个新设置（`visibleModels`、
+`thinkingLevels`）——那两个设置是在 stamp 之后才写的，且先在本地装上去了。
+若让新构建继续叫 `custom.31`，`--version`、`prime-agent.exe.bak-*` 与回滚判断
+都会指向两份不同的二进制。因此新树升到 `custom.32`，`custom.31` 留给已安装的
+那份。这与 `custom.29`、`custom.30` 是同一个坑，第三次踩。
+
 **版本号跳过 `custom.29`**：那个号属于 2026-10-30 装在安装目录里的构建，它的
 工作区改动从未提交（只剩 `prime-agent.exe` 和 `package.json` 里的号）。复用
 `custom.29` 会让新构建在 `--version`、备份文件名和回滚判断上与它无法区分，所以
