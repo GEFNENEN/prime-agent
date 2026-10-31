@@ -46,6 +46,9 @@ impl AgentSessionEngine {
         let mut registry =
             pa_core::models::ModelRegistry::create(auth, self.config.agent_dir.join("models.json"));
         registry.load_private_authorization_from_cache();
+        // The image route swaps the model under the user's feet: an agent-side
+        // decision, bounded by the agent limit.
+        registry.apply_visibility(&self.cwd(), pa_core::settings::ModelAudience::Agent);
         let available: Vec<pa_types::ai::Model> =
             registry.get_available().into_iter().cloned().collect();
         // Route acceptance uses the same resolved-auth result the arm

@@ -39,6 +39,9 @@ impl AgentSessionEngine {
         let mut registry =
             pa_core::models::ModelRegistry::create(auth, self.config.agent_dir.join("models.json"));
         registry.load_private_authorization_from_cache();
+        // Failover is the agent substituting one model for another: the agent
+        // limit decides the candidates, so a hidden model is never a fallback.
+        registry.apply_visibility(&self.cwd(), pa_core::settings::ModelAudience::Agent);
         let available: Vec<pa_types::ai::Model> =
             registry.get_available().into_iter().cloned().collect();
         let candidates = pa_core::models::failover_candidates(model, &available);

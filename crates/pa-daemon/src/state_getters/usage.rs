@@ -4,11 +4,19 @@
 use super::{json, ModelRegistry, Value};
 
 /// The worker's model registry (auth storage + `models.json`, the
-/// private-authorization cache adopted so create-time resolution agrees).
-pub(crate) fn worker_model_registry(agent_dir: &std::path::Path) -> ModelRegistry {
+/// private-authorization cache adopted so create-time resolution agrees), with
+/// the `visibleModels` limit for `audience` attached. Every caller names its
+/// audience: the listing surfaces a human reads and the resolution seams the
+/// agent reaches are different catalogs.
+pub(crate) fn worker_model_registry(
+    cwd: &std::path::Path,
+    agent_dir: &std::path::Path,
+    audience: pa_core::settings::ModelAudience,
+) -> ModelRegistry {
     let auth = pa_core::auth::AuthStorage::create(agent_dir);
     let mut registry = ModelRegistry::create(auth, agent_dir.join("models.json"));
     registry.load_private_authorization_from_cache();
+    registry.apply_visibility(cwd, audience);
     registry
 }
 

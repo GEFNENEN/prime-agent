@@ -142,6 +142,9 @@ pub fn wire_session_runtime(
         .as_ref()
         .and_then(|wiring| wiring.mutation_hook.clone());
     let cron_store = cron_store.map(|wiring| wiring.store);
+    // The session's working directory: the project scope a `visibleModels`
+    // override lives in. Read before `binding` moves into the runtime.
+    let session_cwd = std::path::PathBuf::from(&binding.cwd);
     let mut runtime = SessionRuntime::new(&session, cron_store, active_session_id, binding);
     if let Some(purge) = goal_complete_purge {
         runtime.set_goal_complete_purge(purge);
@@ -162,6 +165,9 @@ pub fn wire_session_runtime(
         // fresh registry otherwise gates every private `internal/*` model out (only
         // the async refresh populates the authorized set).
         registry.load_private_authorization_from_cache();
+        // The kernel bridge serves the agent: `visibleModels.agent` bounds what
+        // `rlm.find_models` lists and what a spawn may name.
+        registry.apply_visibility(&session_cwd, crate::settings::ModelAudience::Agent);
         Arc::new(registry)
     });
     let rlm_usage = Arc::new(super::rlm_usage::RlmChildUsageAttributions::new(

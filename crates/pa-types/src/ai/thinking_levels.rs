@@ -72,25 +72,73 @@ pub fn get_supported_thinking_levels(model: &Model) -> Vec<ModelThinkingLevel> {
 /// nearest higher level then the nearest lower one.
 #[must_use]
 pub fn clamp_thinking_level(model: &Model, level: ModelThinkingLevel) -> ModelThinkingLevel {
-    let available = get_supported_thinking_levels(model);
-    if available.contains(&level) {
+    clamp_on_ladder(level, &get_supported_thinking_levels(model))
+}
+
+/// Clamp `level` onto `candidates` (a non-empty ladder subset): the level itself
+/// when present, else the nearest higher, then the nearest lower, then the
+/// weakest candidate. Shared by the model clamp and the settings-bounded clamp
+/// so both walk the ladder the same way.
+#[must_use]
+pub fn clamp_on_ladder(
+    level: ModelThinkingLevel,
+    candidates: &[ModelThinkingLevel],
+) -> ModelThinkingLevel {
+    if candidates.contains(&level) {
         return level;
     }
     let requested_index = thinking_level_index(level);
     for candidate in EXTENDED_THINKING_LEVELS.iter().skip(requested_index) {
-        if available.contains(candidate) {
+        if candidates.contains(candidate) {
             return *candidate;
         }
     }
     for candidate in EXTENDED_THINKING_LEVELS[..requested_index].iter().rev() {
-        if available.contains(candidate) {
+        if candidates.contains(candidate) {
             return *candidate;
         }
     }
-    available
+    candidates
         .first()
         .copied()
         .unwrap_or(ModelThinkingLevel::Off)
+}
+
+/// The levels a model supports that also sit inside `allow`. An empty `allow`
+/// allows nothing, so the result is empty (the caller decides the fallback).
+#[must_use]
+pub fn supported_thinking_levels_within(
+    model: &Model,
+    allow: &[ModelThinkingLevel],
+) -> Vec<ModelThinkingLevel> {
+    get_supported_thinking_levels(model)
+        .into_iter()
+        .filter(|level| allow.contains(level))
+        .collect()
+}
+
+/// Clamp a request onto `allow ∩ supported` (the settings `thinkingLevels`
+/// bound): the requested level is steered to the nearest allowed level the
+/// model can actually run.
+///
+/// Two empties differ. An **empty `allow`** is a deliberate "no reasoning"
+/// configuration, so the result is `off`. An `allow` naming only levels this
+/// model lacks cannot be satisfied by steering at all, so the model's own clamp
+/// wins and the caller reports the mismatch — the session still starts.
+#[must_use]
+pub fn clamp_thinking_level_within(
+    model: &Model,
+    level: ModelThinkingLevel,
+    allow: &[ModelThinkingLevel],
+) -> ModelThinkingLevel {
+    if allow.is_empty() {
+        return ModelThinkingLevel::Off;
+    }
+    let candidates = supported_thinking_levels_within(model, allow);
+    if candidates.is_empty() {
+        return clamp_thinking_level(model, level);
+    }
+    clamp_on_ladder(level, &candidates)
 }
 
 /// The weakest reasoning a request may send: `None` (the provider default)
@@ -299,6 +347,61 @@ mod tests {
         for level in EXTENDED_THINKING_LEVELS {
             assert_eq!(thinking_level_from_str(level.wire_name()), Some(level));
         }
+    }
+
+    /// The settings `thinkingLevels` bound steers a request onto the allowed
+    /// levels the model can run: a weaker request is raised, a stronger one is
+    /// lowered, and an allowed level passes through untouched.
+    #[test]
+    fn the_settings_bound_steers_requests_onto_allowed_levels() {
+        let map = thinking_level_map(&[
+            (ModelThinkingLevel::Off, None),
+            (ModelThinkingLevel::Low, Some("low")),
+            (ModelThinkingLevel::High, Some("high")),
+        ]);
+        let m = model(true, Some(map));
+        let only_high = [ModelThinkingLevel::High];
+        // Weaker requests are raised to the only allowed level.
+        for requested in [
+            ModelThinkingLevel::Off,
+            ModelThinkingLevel::Low,
+            ModelThinkingLevel::Medium,
+        ] {
+            assert_eq!(
+                clamp_thinking_level_within(&m, requested, &only_high),
+                ModelThinkingLevel::High,
+                "request {requested:?} must land on high"
+            );
+        }
+        // The allowed level passes through, and stronger requests come down.
+        assert_eq!(
+            clamp_thinking_level_within(&m, ModelThinkingLevel::High, &only_high),
+            ModelThinkingLevel::High
+        );
+        assert_eq!(
+            clamp_thinking_level_within(&m, ModelThinkingLevel::Max, &only_high),
+            ModelThinkingLevel::High
+        );
+        // An empty bound is a deliberate "no reasoning", not a mismatch.
+        assert_eq!(
+            clamp_thinking_level_within(&m, ModelThinkingLevel::Low, &[]),
+            ModelThinkingLevel::Off
+        );
+    }
+
+    /// A bound naming a level this model lacks falls back to the model clamp
+    /// instead of collapsing the session to "off".
+    #[test]
+    fn a_bound_the_model_cannot_meet_keeps_the_model_clamp() {
+        let m = model(false, None);
+        assert_eq!(
+            clamp_thinking_level_within(&m, ModelThinkingLevel::High, &[ModelThinkingLevel::High]),
+            ModelThinkingLevel::Off
+        );
+        assert!(
+            supported_thinking_levels_within(&m, &[ModelThinkingLevel::High]).is_empty(),
+            "the mismatch is observable for the caller's warning"
+        );
     }
 
     #[test]

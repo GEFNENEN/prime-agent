@@ -436,7 +436,20 @@ impl AgentSessionEngine {
             // TS `DEFAULT_THINKING_LEVEL`.
             .unwrap_or(pa_types::ai::ModelThinkingLevel::Medium);
         let resolved = match model {
-            Ok(model) => pa_ai::models::clamp_thinking_level(&model, requested),
+            Ok(model) => {
+                // The `thinkingLevels.human` bound steers the human's request
+                // onto a level the model can run (a preference, not a policy):
+                // asking for `low` under `["high"]` runs `high`.
+                let settings =
+                    pa_core::settings::SettingsManager::create(self.cwd(), &self.config.agent_dir);
+                settings
+                    .clamp_thinking_level(
+                        pa_core::settings::ModelAudience::Human,
+                        &model,
+                        requested,
+                    )
+                    .0
+            }
             Err(_) => pa_types::ai::ModelThinkingLevel::Off,
         };
         *self

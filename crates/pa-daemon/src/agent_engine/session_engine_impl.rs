@@ -479,8 +479,13 @@ impl SessionEngine for AgentSessionEngine {
 
     fn supported_thinking_levels(&self) -> Option<Vec<String>> {
         let model = self.resolve_model().ok()?;
+        // The picker offers only what the human bound allows, so a level that
+        // would be steered away is never presented as a choice.
+        let settings =
+            pa_core::settings::SettingsManager::create(self.cwd(), &self.config.agent_dir);
         Some(
-            pa_ai::models::get_supported_thinking_levels(&model)
+            settings
+                .pickable_thinking_levels(pa_core::settings::ModelAudience::Human, &model)
                 .into_iter()
                 .map(|level| level.wire_name().to_string())
                 .collect(),

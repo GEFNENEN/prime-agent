@@ -333,7 +333,11 @@ fn walk_children(
     snapshots: &[Value],
     session_file: Option<&Path>,
 ) -> Result<CachedWalk> {
-    let registry = crate::state_getters::worker_model_registry(agent_dir);
+    let registry = crate::state_getters::worker_model_registry(
+        agent_dir,
+        agent_dir,
+        pa_core::settings::ModelAudience::Human,
+    );
     let artifacts_root = crate::context_tree_children::session_artifacts_dir(agent_dir);
     // User-deleted subagents' transcripts stay hidden at every depth and bill
     // through their deleted rows: the ledger keys both by the deleted child's

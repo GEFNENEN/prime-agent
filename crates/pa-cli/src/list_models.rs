@@ -18,6 +18,8 @@ async fn list(options: &RunOptions) -> Result<i32, String> {
     let auth = pa_core::auth::AuthStorage::create(&config.agent_dir);
     let mut registry =
         pa_core::models::ModelRegistry::create(auth, config.agent_dir.join("models.json"));
+    // `model list` is a human surface: `visibleModels.human` bounds it.
+    registry.apply_visibility(&config.cwd, pa_core::settings::ModelAudience::Human);
     if let Some(error) = registry.get_error() {
         eprintln!("Warning: errors loading models.json:\n{error}");
     }

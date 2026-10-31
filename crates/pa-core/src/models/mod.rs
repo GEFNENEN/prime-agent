@@ -28,6 +28,7 @@ pub(crate) mod private_auth;
 pub(crate) mod registry;
 pub(crate) mod resolver;
 pub(crate) mod session_restore;
+pub mod visibility;
 
 pub use custom::{
     apply_model_override, load_custom_models, merge_compat, parse_models_config,
@@ -51,3 +52,4 @@ pub use session_restore::{
     find_session_model_with_readiness_wait, resolve_model_scope_from_models_with_readiness,
     SESSION_MODEL_RESTORE_READINESS_TIMEOUT_MS,
 };
+pub use visibility::{ModelVisibility, ModelVisibilityRefusal};

@@ -454,3 +454,135 @@ async fn scope_readiness_timeout_keeps_models_available_before_refresh() {
         vec![existing]
     );
 }
+
+/// The `visibleModels` limit removes a model from what an audience can see and
+/// pick, while `get_all` keeps it for provider discovery and session restore.
+#[test]
+fn the_visibility_limit_hides_models_per_audience() {
+    let dir = tempfile::tempdir().unwrap();
+    let models_path = dir.path().join("models.json");
+    std::fs::write(
+        &models_path,
+        r#"{ "providers": { "yes": {
+            "baseUrl": "https://yes.example", "apiKey": "yes-key",
+            "api": "openai-completions",
+            "models": [ { "id": "deepseek-v4.1-flash" }, { "id": "glm-5.3" } ]
+        }, "other": {
+            "baseUrl": "https://other.example", "apiKey": "other-key",
+            "api": "openai-completions",
+            "models": [ { "id": "gpt-5.5" } ]
+        } } }"#,
+    )
+    .unwrap();
+    let agent_dir = dir.path().join("agent");
+    std::fs::create_dir_all(&agent_dir).unwrap();
+    std::fs::write(
+        agent_dir.join("settings.json"),
+        serde_json::json!({
+            "visibleModels": {
+                "enabled": true,
+                "human": ["yes/*"],
+                "agent": ["yes/deepseek-v4.1-flash"]
+            }
+        })
+        .to_string(),
+    )
+    .unwrap();
+    std::fs::copy(&models_path, agent_dir.join("models.json")).unwrap();
+    let auth = auth_with(&serde_json::json!({}));
+
+    let mut human = ModelRegistry::create(
+        auth_with(&serde_json::json!({})),
+        agent_dir.join("models.json"),
+    );
+    human.apply_visibility(dir.path(), crate::settings::ModelAudience::Human);
+    let human_ids: Vec<&str> = human
+        .get_available()
+        .iter()
+        .map(|m| m.id.as_str())
+        .collect();
+    assert!(human_ids.contains(&"deepseek-v4.1-flash"), "{human_ids:?}");
+    assert!(human_ids.contains(&"glm-5.3"), "{human_ids:?}");
+    assert!(!human_ids.contains(&"gpt-5.5"), "{human_ids:?}");
+    // The full catalog still carries the hidden model (provider discovery and
+    // session restore read it), only the audience view is narrowed.
+    assert!(human.get_all().iter().any(|m| m.id == "gpt-5.5"));
+
+    let mut agent = ModelRegistry::create(auth, agent_dir.join("models.json"));
+    agent.apply_visibility(dir.path(), crate::settings::ModelAudience::Agent);
+    let agent_ids: Vec<&str> = agent
+        .get_rlm_searchable_models()
+        .iter()
+        .map(|m| m.id.as_str())
+        .collect();
+    assert_eq!(
+        agent_ids,
+        vec!["deepseek-v4.1-flash"],
+        "agent sees one model"
+    );
+
+    // A hidden model never resolves through the switch path.
+    let error = agent
+        .resolve_set_model_selection("other", "gpt-5.5")
+        .expect_err("hidden model refused");
+    assert!(
+        matches!(error, SetModelSelectionError::NotVisible { .. }),
+        "{error}"
+    );
+    assert!(
+        error.to_string().contains("is not enabled"),
+        "the refusal says the model is disabled, never merely unavailable: {error}"
+    );
+}
+
+/// An omitted `agent` inherits `human`, and `enabled: false` keeps the limit off.
+#[test]
+fn the_visibility_limit_inherits_and_switches_off() {
+    let dir = tempfile::tempdir().unwrap();
+    let agent_dir = dir.path().join("agent");
+    std::fs::create_dir_all(&agent_dir).unwrap();
+    std::fs::write(
+        agent_dir.join("models.json"),
+        r#"{ "providers": { "yes": {
+            "baseUrl": "https://yes.example", "apiKey": "yes-key",
+            "api": "openai-completions",
+            "models": [ { "id": "a" }, { "id": "b" } ]
+        } } }"#,
+    )
+    .unwrap();
+    let auth = auth_with(&serde_json::json!({}));
+
+    // No `agent` key: the agent audience uses the human list.
+    std::fs::write(
+        agent_dir.join("settings.json"),
+        serde_json::json!({
+            "visibleModels": { "enabled": true, "human": ["yes/a"] }
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let mut inherited = ModelRegistry::create(
+        auth_with(&serde_json::json!({})),
+        agent_dir.join("models.json"),
+    );
+    inherited.apply_visibility(dir.path(), crate::settings::ModelAudience::Agent);
+    let ids: Vec<&str> = inherited
+        .get_available()
+        .iter()
+        .map(|m| m.id.as_str())
+        .collect();
+    assert_eq!(ids, vec!["a"], "an omitted agent list inherits human");
+
+    // `enabled: false` keeps the historic unrestricted behavior.
+    std::fs::write(
+        agent_dir.join("settings.json"),
+        serde_json::json!({
+            "visibleModels": { "enabled": false, "human": ["yes/a"] }
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let mut off = ModelRegistry::create(auth, agent_dir.join("models.json"));
+    off.apply_visibility(dir.path(), crate::settings::ModelAudience::Human);
+    assert_eq!(off.get_available().len(), 2, "a disabled limit shows all");
+}
