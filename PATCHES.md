@@ -85,14 +85,29 @@ rebase 之后的新树。**本次同步因此把新树升到 `custom.31`**，`cu
 **版本号再跳过 `custom.31`**（2026-10-31 补记）：`custom.31` 的 stamp 提交
 （`28d5ce9a3`）只改 `Cargo.toml` 与 `Cargo.lock`，它标记的是「rebase 到
 `v0.10.3-beta.5` 之后、但**还没写**那两个新设置」的那棵树。按受众限制可见模型与
-推理档位的 `visibleModels`、`thinkingLevels` 是在 stamp **之后**才写的
-（`b164aae2b`），并且**当时并没有装进安装目录**：安装目录里那份 `custom.31`
-构建于 2026-10-31 01:39（SHA256 `3C83295C…2968`），二进制里查不到
-`visibleModels`，只有早已存在的 `thinkingLevels`。
+推理档位的 `visibleModels`、`thinkingLevels` 是在 stamp **之后**才写的，同一个提交
+`b164aae2b` 一起引入（`git log -S'thinkingLevels' -- crates` 与
+`git log -S'visibleModels' -- crates` 命中同一个 hash；`git grep` 在 `28d5ce9a3`
+与 `v0.10.3-beta.5` 上对两个键都是 0 命中）。该提交**当时并没有装进安装目录**：
+安装目录里那份 `custom.31` 构建于 2026-10-31 01:39（SHA256 `3C83295C…2968`），
+它对应的源码树里两个键都不存在。
+
+旧 exe（备份 `prime-agent.exe.bak-0.10.3-beta.5+custom.31`）里能搜到
+`thinkingLevels` 字样，但那是**假命中**，而且只有一处（文件偏移 49862776）：
+`AgentMessage` 的 serde 字段表把 `thinkingLevel` 与 `serviceTier` 两个既有字段名
+前后排在一起，而 `thinkingLevel` 后面那个 `s` 正好是 `serviceTier` 的首字母——
+`thinkingLevel` + `s` 拼出 `thinkingLevels`。它对应的是
+`thinking_level_change` 事件字段（`thinkingLevel`）和 `service_tier_change`
+事件字段（`serviceTier`），不是设置键，也不是内嵌 runtime/skills 负载。
+
+作为对照，新装的 `custom.32` 有 7 处命中：4 处是同一个 `thinkingLevel`+`serviceTier`
+拼串，3 处是真正的设置键——`"thinkingLevels" allows only …` 的 clamp 文案，以及
+`allowedModels visibleModels thinkingLevels thinkingBudgets …` 和
+`… visibleModels thinkingLevels treeFilterMode …` 两张字段表。
 
 新构建含这两个设置，若继续叫 `custom.31`，`--version`、`prime-agent.exe.bak-*`
 与回滚判断就会指向两份不同的二进制——备份 `prime-agent.exe.bak-0.10.3-beta.5+custom.31`
-里没有 `visibleModels`，而新装的那份有，名字却一样。因此新树升到 `custom.32`，
+里两个设置都没有，而新装的那份都有，名字却一样。因此新树升到 `custom.32`，
 `custom.31` 留给之前装的那份。这与 `custom.29`、`custom.30` 是同一个坑，第三次踩。
 
 **版本号跳过 `custom.29`**：那个号属于 2026-10-30 装在安装目录里的构建，它的
