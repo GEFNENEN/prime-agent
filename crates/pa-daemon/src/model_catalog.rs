@@ -63,19 +63,20 @@ impl Worker {
         } else {
             pa_core::models::RefreshTrigger::PickerOpen
         };
-        self.spawn_catalog_refresh(trigger, served.clone(), all_providers);
+        self.spawn_catalog_refresh(trigger, served.clone());
         response_success(None, "get_model_catalog", Some(served))
     }
 
     /// The background catalog refresh: the same awaited chain the TS
     /// request runs, settled off the response path; failures keep the
     /// last-good snapshot and stay silent.
-    fn spawn_catalog_refresh(
-        &self,
-        trigger: pa_core::models::RefreshTrigger,
-        served: Value,
-        all_providers: Vec<String>,
-    ) {
+    ///
+    /// `configuredProviders` is recomputed from each loop iteration's own
+    /// registry rather than carried in from the request: an `AuthChange`
+    /// refresh is precisely how a provider that was just signed in enters the
+    /// picture, so a frozen list would drop it both from the refreshed payload
+    /// and from the `baseline` comparison.
+    fn spawn_catalog_refresh(&self, trigger: pa_core::models::RefreshTrigger, served: Value) {
         let gate = std::sync::Arc::clone(&self.model_catalog_refresh_gate);
         if gate.in_flight.swap(true, Ordering::SeqCst) {
             // A refresh already runs: remember the request and return — the
@@ -99,13 +100,18 @@ impl Worker {
                 let available = registry
                     .refresh_available_models_with_trigger(trigger)
                     .await;
+                // Read BEFORE the limit, like the request path: the sign-in
+                // list must not shrink to what the picker may run. Read AFTER
+                // the refresh, though — an `AuthChange` refresh is precisely
+                // how a newly signed-in provider enters the picture.
+                let providers = configured_providers(&registry);
                 // The refresh must answer the same audience the request did,
                 // or opening `/model` would re-expand to the full catalog.
                 registry.apply_visibility(
                     std::path::Path::new(&cwd),
                     pa_core::settings::ModelAudience::Human,
                 );
-                let refreshed = catalog_payload(&registry, &available, &all_providers);
+                let refreshed = catalog_payload(&registry, &available, &providers);
                 if refreshed != baseline {
                     events.send(OutboundFrame::model_catalog_changed());
                 }
@@ -127,13 +133,6 @@ impl Worker {
     }
 }
 
-/// The wire payload of one catalog snapshot: the catalog the picker may list,
-/// i.e. the auth-configured models with the `visibleModels.human` limit already
-/// applied by the caller's registry, plus the providers that have auth.
-///
-/// `available` is the same registry's post-limit list, so a model outside the
-/// limit is absent from `models` but its provider still reaches
-/// `configuredProviders` (that set comes from auth, not from this array).
 /// The wire payload of one catalog snapshot: the catalog the picker may list —
 /// the full catalog minus unauthorized private Prime Inference models, minus
 /// anything outside the `visibleModels.human` limit — plus the providers that
@@ -143,6 +142,10 @@ impl Worker {
 /// picker lets a human browse models whose provider is not signed in yet, then
 /// sign in from the same surface. The visibility limit is an explicit deny, so
 /// it applies on top of that permissive default.
+///
+/// `providers` is a separate argument because the caller reads it BEFORE
+/// attaching the limit (see [`configured_providers`]): hiding a model must not
+/// remove its provider from the login panel's sign-in list.
 fn catalog_payload(
     registry: &pa_core::models::ModelRegistry,
     available: &[pa_types::ai::Model],
