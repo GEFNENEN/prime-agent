@@ -17,6 +17,10 @@ fn registry(state: &RpcState) -> pa_core::models::ModelRegistry {
     let mut registry =
         pa_core::models::ModelRegistry::create(auth, state.agent_dir.join("models.json"));
     registry.load_private_authorization_from_cache();
+    // RPC model commands are the human's surfaces (`set_model`,
+    // `cycle_model`): `visibleModels.human` bounds what they may pick, so a
+    // hidden model cannot be resolved by name through this path either.
+    registry.apply_visibility(&state.cwd, pa_core::settings::ModelAudience::Human);
     registry
 }
 
