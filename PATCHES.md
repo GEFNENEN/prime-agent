@@ -50,8 +50,13 @@
 | 35 | `b1021aa09` | feat | TUI：`PASTE_TRACE` 打印粘贴路径上的原始终端事件 |
 | 36 | `b164aae2b` | feat | 按受众（人 / agent）限定可见模型与推理档位：`visibleModels`、`thinkingLevels` |
 
-补丁之外还有 16 个文档提交与 5 个版本戳提交（`git log --oneline v0.10.3-beta.5..HEAD`
-里标题以 `docs:` / `chore: stamp` 开头的那些），它们随 rebase 改写 hash，按标题找。
+补丁之外还有三类提交不进表格：文档提交、版本戳提交，以及 2 个 rebase 修复提交
+（`01bfb8634`、`58af8100b`，改 `pa-tui` 的测试调用点，见下文本次 rebase 的三处
+源码改动）。文档与版本戳提交随 rebase 改写 hash，按标题找
+（`git log --oneline v0.10.3-beta.5..HEAD` 里标题以 `docs:` / `chore: stamp`
+开头的那些）；修复提交是重放破损的修补，不是本地补丁。三者与表格行数之和
+等于 `git log --oneline v0.10.3-beta.5..HEAD | wc -l` 的总数——写死具体数字
+只会随下一次提交过期，所以不写。
 
 **`custom.30` 的版本行随 rebase 变了，提交信息没变。** 那个 stamp 提交写于
 `v0.10.2` 基线，正文说「stamp as 0.10.2+custom.30」；rebase 把它的 diff 重放到
@@ -77,13 +82,18 @@ rebase 之后的新树。**本次同步因此把新树升到 `custom.31`**，`cu
 
 第 1 条会在上游修好时再冲突一次；届时删掉本地这 5 处改动即可。
 
-**版本号再跳过 `custom.31`**（2026-10-31 补记）：`custom.31` 的 stamp 提交只改
-`Cargo.toml` 与 `Cargo.lock`，它标记的是「rebase 到 `v0.10.3-beta.5` 之后的那棵树」，
-**不含**按受众限制可见模型与推理档位的两个新设置（`visibleModels`、
-`thinkingLevels`）——那两个设置是在 stamp 之后才写的，且先在本地装上去了。
-若让新构建继续叫 `custom.31`，`--version`、`prime-agent.exe.bak-*` 与回滚判断
-都会指向两份不同的二进制。因此新树升到 `custom.32`，`custom.31` 留给已安装的
-那份。这与 `custom.29`、`custom.30` 是同一个坑，第三次踩。
+**版本号再跳过 `custom.31`**（2026-10-31 补记）：`custom.31` 的 stamp 提交
+（`28d5ce9a3`）只改 `Cargo.toml` 与 `Cargo.lock`，它标记的是「rebase 到
+`v0.10.3-beta.5` 之后、但**还没写**那两个新设置」的那棵树。按受众限制可见模型与
+推理档位的 `visibleModels`、`thinkingLevels` 是在 stamp **之后**才写的
+（`b164aae2b`），并且**当时并没有装进安装目录**：安装目录里那份 `custom.31`
+构建于 2026-10-31 01:39（SHA256 `3C83295C…2968`），二进制里查不到
+`visibleModels`，只有早已存在的 `thinkingLevels`。
+
+新构建含这两个设置，若继续叫 `custom.31`，`--version`、`prime-agent.exe.bak-*`
+与回滚判断就会指向两份不同的二进制——备份 `prime-agent.exe.bak-0.10.3-beta.5+custom.31`
+里没有 `visibleModels`，而新装的那份有，名字却一样。因此新树升到 `custom.32`，
+`custom.31` 留给之前装的那份。这与 `custom.29`、`custom.30` 是同一个坑，第三次踩。
 
 **版本号跳过 `custom.29`**：那个号属于 2026-10-30 装在安装目录里的构建，它的
 工作区改动从未提交（只剩 `prime-agent.exe` 和 `package.json` 里的号）。复用
