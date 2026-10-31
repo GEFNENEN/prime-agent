@@ -14,7 +14,13 @@ use super::protocol::ResponseData;
 /// The available-models registry over the mode's agent dir (the same resolution `set_model` uses).
 fn registry(state: &RpcState) -> pa_core::models::ModelRegistry {
     let auth = pa_core::auth::AuthStorage::create(&state.agent_dir);
-    pa_core::models::ModelRegistry::create(auth, state.agent_dir.join("models.json"))
+    let mut registry =
+        pa_core::models::ModelRegistry::create(auth, state.agent_dir.join("models.json"));
+    // RPC model commands are the human's surfaces (`set_model`,
+    // `cycle_model`): `visibleModels.human` bounds what they may pick, so a
+    // hidden model cannot be resolved by name through this path either.
+    registry.apply_visibility(&state.cwd, pa_core::settings::ModelAudience::Human);
+    registry
 }
 
 /// `set_model`: resolve through the available catalog, swap the live
