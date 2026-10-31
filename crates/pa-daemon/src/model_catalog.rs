@@ -22,6 +22,11 @@ pub(crate) struct RefreshGate {
 impl Worker {
     /// `get_model_catalog`: the full catalog and configured providers from
     /// the current validated snapshot — never a network request here.
+    ///
+    /// The `/model` picker is a human surface, so `visibleModels.human` bounds
+    /// the `models` array. `configuredProviders` stays the unfiltered
+    /// auth-derived set: the login panel enumerates providers to sign into, and
+    /// a hidden model must not make its provider disappear from that list.
     pub(crate) fn handle_get_model_catalog(&self) -> DaemonResponse {
         if let Err(response) = self.require_created("get_model_catalog") {
             return response;
@@ -32,12 +37,23 @@ impl Worker {
             pa_core::auth::AuthStorage::create(&agent_dir),
             models_json.clone(),
         );
+        // The login panel's provider list, read BEFORE the limit: a hidden
+        // model must not remove its provider from the sign-in surfaces.
+        let all_providers = configured_providers(&registry);
+        let cwd = {
+            let core = self.core.lock().unwrap();
+            core.cwd.clone()
+        };
+        registry.apply_visibility(
+            std::path::Path::new(&cwd),
+            pa_core::settings::ModelAudience::Human,
+        );
         let available = registry
             .get_available()
             .into_iter()
             .cloned()
             .collect::<Vec<_>>();
-        let served = catalog_payload(&registry, &available);
+        let served = catalog_payload(&registry, &available, &all_providers);
         // An observed credential-scope change forces the refresh; the
         // observation consumes the scope, so one change forces exactly once.
         let credentials = pa_core::models::prime_credentials_for_dir(&agent_dir);
@@ -47,14 +63,19 @@ impl Worker {
         } else {
             pa_core::models::RefreshTrigger::PickerOpen
         };
-        self.spawn_catalog_refresh(trigger, served.clone());
+        self.spawn_catalog_refresh(trigger, served.clone(), all_providers);
         response_success(None, "get_model_catalog", Some(served))
     }
 
     /// The background catalog refresh: the same awaited chain the TS
     /// request runs, settled off the response path; failures keep the
     /// last-good snapshot and stay silent.
-    fn spawn_catalog_refresh(&self, trigger: pa_core::models::RefreshTrigger, served: Value) {
+    fn spawn_catalog_refresh(
+        &self,
+        trigger: pa_core::models::RefreshTrigger,
+        served: Value,
+        all_providers: Vec<String>,
+    ) {
         let gate = std::sync::Arc::clone(&self.model_catalog_refresh_gate);
         if gate.in_flight.swap(true, Ordering::SeqCst) {
             // A refresh already runs: remember the request and return — the
@@ -63,6 +84,10 @@ impl Worker {
             return;
         }
         let agent_dir = self.config.agent_dir.clone();
+        let cwd = {
+            let core = self.core.lock().unwrap();
+            core.cwd.clone()
+        };
         let events = Arc::clone(&self.events);
         tokio::spawn(async move {
             let mut baseline = served;
@@ -74,7 +99,13 @@ impl Worker {
                 let available = registry
                     .refresh_available_models_with_trigger(trigger)
                     .await;
-                let refreshed = catalog_payload(&registry, &available);
+                // The refresh must answer the same audience the request did,
+                // or opening `/model` would re-expand to the full catalog.
+                registry.apply_visibility(
+                    std::path::Path::new(&cwd),
+                    pa_core::settings::ModelAudience::Human,
+                );
+                let refreshed = catalog_payload(&registry, &available, &all_providers);
                 if refreshed != baseline {
                     events.send(OutboundFrame::model_catalog_changed());
                 }
@@ -96,18 +127,27 @@ impl Worker {
     }
 }
 
-/// The wire payload of one catalog snapshot: the full catalog minus
-/// unauthorized private Prime Inference models, plus sorted providers.
+/// The wire payload of one catalog snapshot: the catalog the picker may list,
+/// i.e. the auth-configured models with the `visibleModels.human` limit already
+/// applied by the caller's registry, plus the providers that have auth.
+///
+/// `available` is the same registry's post-limit list, so a model outside the
+/// limit is absent from `models` but its provider still reaches
+/// `configuredProviders` (that set comes from auth, not from this array).
+/// The wire payload of one catalog snapshot: the catalog the picker may list —
+/// the full catalog minus unauthorized private Prime Inference models, minus
+/// anything outside the `visibleModels.human` limit — plus the providers that
+/// have configured auth.
+///
+/// The full catalog (not just the auth-configured one) is deliberate: the
+/// picker lets a human browse models whose provider is not signed in yet, then
+/// sign in from the same surface. The visibility limit is an explicit deny, so
+/// it applies on top of that permissive default.
 fn catalog_payload(
     registry: &pa_core::models::ModelRegistry,
     available: &[pa_types::ai::Model],
+    providers: &[String],
 ) -> Value {
-    let mut providers: Vec<String> = available
-        .iter()
-        .map(|model| model.provider.clone())
-        .collect();
-    providers.sort();
-    providers.dedup();
     let available_keys: std::collections::HashSet<String> = available
         .iter()
         .map(|model| format!("{}/{}", model.provider, model.id))
@@ -121,6 +161,10 @@ fn catalog_payload(
             !pa_core::models::is_private_prime_inference_model(model)
                 || available_keys.contains(&format!("{}/{}", model.provider, model.id))
         })
+        // The visibility limit is the one thing that removes a model from a
+        // human surface entirely (`get_all` keeps it for provider discovery
+        // and session restore, which are different questions).
+        .filter(|model| registry.permits(model))
         .collect();
     entries.sort_by(|a, b| (&a.provider, &a.id).cmp(&(&b.provider, &b.id)));
     let models: Vec<Value> = entries
@@ -131,6 +175,20 @@ fn catalog_payload(
         "models": models,
         "configuredProviders": providers,
     })
+}
+
+/// The providers that have configured auth, independent of any visibility
+/// limit: the login panel enumerates these to offer a sign-in, so hiding a
+/// provider's models must not remove the provider itself.
+fn configured_providers(registry: &pa_core::models::ModelRegistry) -> Vec<String> {
+    let mut providers: Vec<String> = registry
+        .get_available()
+        .into_iter()
+        .map(|model| model.provider.clone())
+        .collect();
+    providers.sort();
+    providers.dedup();
+    providers
 }
 
 #[cfg(test)]
@@ -512,6 +570,70 @@ mod tests {
             .expect("models array")
             .iter()
             .any(|model| model["id"] == id)
+    }
+
+    /// `/model` is a human surface: `visibleModels.human` must remove a model
+    /// from the picker payload, while `configuredProviders` (the login panel's
+    /// list) must keep the provider it would otherwise still offer.
+    #[test]
+    fn the_picker_payload_honours_the_human_visibility_limit() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let agent_dir = dir.path().join("agent");
+        std::fs::create_dir_all(&agent_dir).expect("agent dir");
+        std::fs::write(
+            agent_dir.join("models.json"),
+            json!({ "providers": {
+                "yes": {
+                    "baseUrl": "https://yes.example", "apiKey": "yes-key",
+                    "api": "openai-completions",
+                    "models": [{ "id": "visible-one" }, { "id": "hidden-one" }]
+                },
+                "other": {
+                    "baseUrl": "https://other.example", "apiKey": "other-key",
+                    "api": "openai-completions",
+                    "models": [{ "id": "other-model" }]
+                }
+            }})
+            .to_string(),
+        )
+        .expect("models.json");
+        std::fs::write(
+            agent_dir.join("settings.json"),
+            json!({ "visibleModels": { "enabled": true, "human": ["yes/visible-one"] } })
+                .to_string(),
+        )
+        .expect("settings.json");
+
+        let auth = pa_core::auth::AuthStorage::create(&agent_dir);
+        let mut registry =
+            pa_core::models::ModelRegistry::create(auth, agent_dir.join("models.json"));
+        let all_providers = configured_providers(&registry);
+        registry.apply_visibility(dir.path(), pa_core::settings::ModelAudience::Human);
+        let available = registry
+            .get_available()
+            .into_iter()
+            .cloned()
+            .collect::<Vec<_>>();
+        let payload = catalog_payload(&registry, &available, &all_providers);
+
+        assert!(has_model(&payload, "visible-one"), "{payload}");
+        assert!(
+            !has_model(&payload, "hidden-one"),
+            "a model outside visibleModels.human must not reach the picker: {payload}"
+        );
+        assert!(
+            !has_model(&payload, "other-model"),
+            "an unlisted provider's model is hidden too: {payload}"
+        );
+        // The login panel still enumerates the provider to sign into.
+        let providers = payload["configuredProviders"]
+            .as_array()
+            .expect("providers");
+        assert!(
+            providers.iter().any(|provider| provider == "other"),
+            "hiding a model must not remove its provider from sign-in: {payload}"
+        );
+        assert_canonical_models_order(&payload);
     }
 
     /// The payload's models are in canonical (provider, id) order: the
