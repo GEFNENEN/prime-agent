@@ -140,3 +140,21 @@ used_underscore_binding = "warn"
 lto = "thin"
 codegen-units = 4
 debug = "line-tables-only"
+
+# Local disk hygiene for this checkout, not a shipping concern: `debug/` under
+# the shared target dir had grown far beyond anything the source tree needs,
+# and `incremental/` was the single largest contributor to it. Tradeoff, stated
+# explicitly: incremental compilation is off for `dev` — and therefore for
+# `test`, which has no `[profile.test]` of its own — so a rebuild after an edit
+# recompiles the affected crates rather than just the changed modules.
+#
+# `test` is the reason this exists at all: `cargo test` was generating the bulk
+# of the churn. `bench` is NOT in that group. It inherits `release`, which
+# already defaults to incremental = false, so benchmarks only ever produce an
+# empty `release/incremental/` and no incremental units. This change has
+# nothing to do with them.
+#
+# `release` is untouched, so the shipped binary and its debug-split story
+# above are unaffected.
+[profile.dev]
+incremental = false
