@@ -126,8 +126,14 @@ used_underscore_binding = "warn"
 # debuginfo made incremental test rebuilds mostly link time and target/
 # several times larger. For a debugger session with locals and types in
 # workspace code, build with CARGO_PROFILE_DEV_DEBUG=2.
+# Local disk hygiene for this checkout (see MAINTAINING.md section 7): cargo
+# test inherits dev, and incremental units under the shared target dir were
+# the bulk of the churn. 
+elease keeps its own profile; CARGO_INCREMENTAL=1
+# still overrides this per invocation.
 [profile.dev]
 debug = "line-tables-only"
+incremental = false
 
 [profile.dev.package."*"]
 debug = false
