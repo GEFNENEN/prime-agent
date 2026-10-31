@@ -5,7 +5,7 @@
 `git log main..custom`）。
 
 - 基线：`v0.10.3-beta.5`（上游 `9cf0d47e2`；tag 提交为 `5543b66e5`，tag-only）
-- 补丁数：**35**
+- 补丁数：**36**
 - 维护流程见 [MAINTAINING.md](MAINTAINING.md)
 
 表格以**提交标题**为主键、hash 只在括号里作参考：rebase 会重写 hash，
@@ -48,6 +48,7 @@
 | 33 | `b1d04d02a` | fix | Windows 括号粘贴从按键流重组为一次粘贴 |
 | 34 | `a829c0881` | feat | ACP：Python cell 按代码首行命名，并上报上下文用量 |
 | 35 | `b1021aa09` | feat | TUI：`PASTE_TRACE` 打印粘贴路径上的原始终端事件 |
+| 36 | `b164aae2b` | feat | 按受众（人 / agent）限定可见模型与推理档位：`visibleModels`、`thinkingLevels` |
 
 补丁之外还有 16 个文档提交与 5 个版本戳提交（`git log --oneline v0.10.3-beta.5..HEAD`
 里标题以 `docs:` / `chore: stamp` 开头的那些），它们随 rebase 改写 hash，按标题找。
