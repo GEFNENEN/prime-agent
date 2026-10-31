@@ -7,7 +7,7 @@ use pa_core::session_engine::rlm_host::RlmSpawnKind;
 use super::retirement::{Retirement, RetirementEvent, RetirementIntent};
 use super::run_state::{RunEvent, RunState};
 use super::{
-    assert_thinking_supported, bail, create_default_rlm_subagent_session_name, json, now_ms,
+    bail, clamp_child_thinking, create_default_rlm_subagent_session_name, json, now_ms,
     resolve_child_cwd, resolve_child_model, rlm_child_label, rlm_depth_limit_error,
     spawn_name_unavailable_error, Arc, ChildCloseReason, ChildObservationSource, ChildRecord,
     Context, DaemonCommand, Duration, Instant, Mutex, Path, Result, RlmChildResult,
@@ -88,6 +88,7 @@ async fn resolve_child_model_allowlisted(
     .await
     .context("the allowlist load task join failed")?;
     match resolve_child_model(
+        Path::new(&cwd),
         &this.agent_dir,
         reference,
         identity.model.as_deref(),
@@ -229,8 +230,15 @@ impl RlmSubagentHost for SupervisorChildSessions {
                         .await?
                     }
                 };
-                assert_thinking_supported(&this.agent_dir, request.thinking.as_deref(), &model)?;
-                let thinking = request.thinking.as_deref().or(identity.thinking.as_deref());
+                // Clamp the request onto the settings `thinkingLevels` bound and
+                // the model's own ladder; a steered request is recorded below.
+                let (clamped_thinking, thinking_note) = clamp_child_thinking(
+                    &cwd,
+                    &this.agent_dir,
+                    request.thinking.as_deref(),
+                    &model,
+                )?;
+                let thinking = clamped_thinking.as_deref().or(identity.thinking.as_deref());
                 let child_dir = this.child_session_dir(&child_id, &identity)?;
                 // Every spawned child — a decision child included —
                 // presents the subagent runtime identity; the decision
@@ -253,6 +261,11 @@ impl RlmSubagentHost for SupervisorChildSessions {
                     if let Some(contract) = &factory.contract {
                         runtime_metadata["factoryContract"] = contract.clone();
                     }
+                }
+                // A request the ladder steered is recorded rather than silently
+                // rewritten: the roster shows what actually ran.
+                if let Some(note) = thinking_note {
+                    runtime_metadata["thinkingResolution"] = json!(note);
                 }
                 let created = this
                     .create_child(
@@ -486,7 +499,15 @@ impl RlmSubagentHost for SupervisorChildSessions {
                 "top-level session",
             )
             .await?;
-            assert_thinking_supported(&this.agent_dir, request.thinking.as_deref(), &model)?;
+            // The request is steered onto the allowed ladder; the create path has
+            // no runtime-metadata lane of its own, so the resolution rides the
+            // level it launches with.
+            let (clamped_thinking, _thinking_note) = clamp_child_thinking(
+                Path::new(identity.cwd.as_deref().unwrap_or("/")),
+                &this.agent_dir,
+                request.thinking.as_deref(),
+                &model,
+            )?;
             // A depth-0 resident session is created exactly like a client
             // `create`: the shared sessions dir and the requested cwd.
             let cwd = resolve_child_cwd(
@@ -497,7 +518,7 @@ impl RlmSubagentHost for SupervisorChildSessions {
             let sessions_dir = crate::paths::sessions_dir(&this.agent_dir)?;
             std::fs::create_dir_all(&sessions_dir)
                 .with_context(|| format!("create sessions dir {}", sessions_dir.display()))?;
-            let thinking = request.thinking.as_deref().or(identity.thinking.as_deref());
+            let thinking = clamped_thinking.as_deref().or(identity.thinking.as_deref());
             let created = this
                 .launch_child(
                     "root",

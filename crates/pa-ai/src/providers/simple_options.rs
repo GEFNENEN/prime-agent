@@ -320,7 +320,6 @@ mod tests {
         }
     }
 
-    }
 
     #[test]
     fn every_tier_above_high_reaches_the_wire_with_its_own_budget() {
@@ -396,7 +395,6 @@ mod tests {
         assert_eq!(sent[4], 32_768, "xhigh gets its own 32_768");
         // max asks 65_536; the 50_000 ceiling binds it to 50_000 - 1_024.
         assert_eq!(sent[5], 48_976);
-    }
     }
 
     #[test]
