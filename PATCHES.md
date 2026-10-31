@@ -5,7 +5,7 @@
 `git log main..custom`）。
 
 - 基线：`v0.10.3-beta.5`（上游 `9cf0d47e2`；tag 提交为 `5543b66e5`，tag-only）
-- 补丁数：**36**
+- 补丁数：**37**
 - 维护流程见 [MAINTAINING.md](MAINTAINING.md)
 
 表格以**提交标题**为主键、hash 只在括号里作参考：rebase 会重写 hash，
@@ -49,14 +49,19 @@
 | 34 | `a829c0881` | feat | ACP：Python cell 按代码首行命名，并上报上下文用量 |
 | 35 | `b1021aa09` | feat | TUI：`PASTE_TRACE` 打印粘贴路径上的原始终端事件 |
 | 36 | `b164aae2b` | feat | 按受众（人 / agent）限定可见模型与推理档位：`visibleModels`、`thinkingLevels` |
+| 37 | `ecc278f82` | fix | `/model` picker 接上 `visibleModels.human`（收尾见 `5f1a9eb75`） |
 
 补丁之外还有三类提交不进表格：文档提交、版本戳提交，以及 2 个 rebase 修复提交
 （`01bfb8634`、`58af8100b`，改 `pa-tui` 的测试调用点，见下文本次 rebase 的三处
 源码改动）。文档与版本戳提交随 rebase 改写 hash，按标题找
 （`git log --oneline v0.10.3-beta.5..HEAD` 里标题以 `docs:` / `chore: stamp`
-开头的那些）；修复提交是重放破损的修补，不是本地补丁。三者与表格行数之和
-等于 `git log --oneline v0.10.3-beta.5..HEAD | wc -l` 的总数——写死具体数字
-只会随下一次提交过期，所以不写。
+开头的那些）；修复提交是重放破损的修补，不是本地补丁。
+
+表格按**行为补丁**计数，所以行数与提交数**不相等**：同一个补丁的后续收尾提交
+（对已入表补丁的修正、重构、补测试）并入该行的摘要，不另开一行——`5f1a9eb75`
+就是这样并进第 37 行的。想核对总数时用 `git log --oneline v0.10.3-beta.5..HEAD`
+与表格、`docs:`、`chore: stamp`、rebase 修复逐一对照，别指望一个固定的算术式：
+任何一侧新增提交都会让它过期，所以这里不写死数字。
 
 **`custom.30` 的版本行随 rebase 变了，提交信息没变。** 那个 stamp 提交写于
 `v0.10.2` 基线，正文说「stamp as 0.10.2+custom.30」；rebase 把它的 diff 重放到
@@ -86,23 +91,27 @@ rebase 之后的新树。**本次同步因此把新树升到 `custom.31`**，`cu
 （`28d5ce9a3`）只改 `Cargo.toml` 与 `Cargo.lock`，它标记的是「rebase 到
 `v0.10.3-beta.5` 之后、但**还没写**那两个新设置」的那棵树。按受众限制可见模型与
 推理档位的 `visibleModels`、`thinkingLevels` 是在 stamp **之后**才写的，同一个提交
-`b164aae2b` 一起引入（`git log -S'thinkingLevels' -- crates` 与
-`git log -S'visibleModels' -- crates` 命中同一个 hash；`git grep` 在 `28d5ce9a3`
-与 `v0.10.3-beta.5` 上对两个键都是 0 命中）。该提交**当时并没有装进安装目录**：
-安装目录里那份 `custom.31` 构建于 2026-10-31 01:39（SHA256 `3C83295C…2968`），
-它对应的源码树里两个键都不存在。
+`b164aae2b` 一起引入（`git log --reverse -S'visibleModels' -- crates` 与
+`git log --reverse -S'thinkingLevels' -- crates` 的首个命中都是它；`git grep` 在
+`28d5ce9a3` 与 `v0.10.3-beta.5` 上对两个键都是 0 命中——注意 `-S` 正向列会列出
+后续所有改动过该键的提交，只有 `--reverse` 的首行才是「引入」）。该提交
+**当时并没有装进安装目录**：安装目录里那份 `custom.31` 构建于 2026-10-31 01:39
+（SHA256 `3C83295C…2968`），它对应的源码树里两个键都不存在。
 
 旧 exe（备份 `prime-agent.exe.bak-0.10.3-beta.5+custom.31`）里能搜到
 `thinkingLevels` 字样，但那是**假命中**，而且只有一处（文件偏移 49862776）：
-`AgentMessage` 的 serde 字段表把 `thinkingLevel` 与 `serviceTier` 两个既有字段名
-前后排在一起，而 `thinkingLevel` 后面那个 `s` 正好是 `serviceTier` 的首字母——
-`thinkingLevel` + `s` 拼出 `thinkingLevels`。它对应的是
-`thinking_level_change` 事件字段（`thinkingLevel`）和 `service_tier_change`
-事件字段（`serviceTier`），不是设置键，也不是内嵌 runtime/skills 负载。
+文件条目（`FileEntry`）的 serde 字段名表里，`thinking_level_change` 的
+`thinkingLevel` 与紧邻的 `service_tier_change` 的 `serviceTier` 前后排在一起，
+而 `thinkingLevel` 后面那个 `s` 正好是 `serviceTier` 的首字母——
+`thinkingLevel` + `s` 拼出 `thinkingLevels`。两个键来自
+`crates/pa-types/src/session.rs` 里两个**相邻的 struct**
+（`ThinkingLevelChangeEntry` / `ServiceTierChangeEntry`），不是同一结构的字段。
+它不是设置键，也不是内嵌 runtime/skills 负载。
 
 作为对照，新装的 `custom.32` 有 7 处命中：4 处是同一个 `thinkingLevel`+`serviceTier`
-拼串，3 处是真正的设置键——`"thinkingLevels" allows only …` 的 clamp 文案，以及
-`allowedModels visibleModels thinkingLevels thinkingBudgets …` 和
+拼串（分布在 4 个不同的元数据块里，其中 `repoUrlcommitbranchthinkingLevelserviceTier`
+那一处来自另一张表），3 处是真正的设置键——`"thinkingLevels" allows only …` 的
+clamp 文案，以及 `allowedModels visibleModels thinkingLevels thinkingBudgets …` 和
 `… visibleModels thinkingLevels treeFilterMode …` 两张字段表。
 
 新构建含这两个设置，若继续叫 `custom.31`，`--version`、`prime-agent.exe.bak-*`
@@ -123,6 +132,10 @@ rebase 之后的新树。**本次同步因此把新树升到 `custom.31`**，`cu
 正是上面 `custom.31` 那段描述的坑，第四次。所以 picker 修复之后升到 `custom.33`
 （`A346098F…1EA1`）：`custom.32` = 无 picker 过滤的那份（14:40 构建，装过安装目录），
 `custom.33` = 含 `ecc278f82` 的那份。
+
+**部署时必须同步 `package.json` 与 `.prime-agent-install`**：`--version` 优先读
+exe 同目录 `package.json` 的 version（`crates/pa-cli/src/config.rs`），不是编进
+二进制的。只换 exe 会让新二进制继续报旧号，这次 bump 想消灭的歧义会原样复现。
 
 **版本号跳过 `custom.29`**：那个号属于 2026-10-30 装在安装目录里的构建，它的
 工作区改动从未提交（只剩 `prime-agent.exe` 和 `package.json` 里的号）。复用
