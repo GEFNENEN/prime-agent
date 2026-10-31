@@ -269,7 +269,17 @@ impl Worker {
         if let Err(response) = self.require_created("get_available_models") {
             return response;
         }
-        let registry = worker_model_registry(&self.config.agent_dir);
+        // The picker/discovery listing a client shows its user: the human
+        // audience, so a model hidden from the human never appears there.
+        let cwd = {
+            let core = self.core.lock().unwrap();
+            core.cwd.clone()
+        };
+        let registry = worker_model_registry(
+            std::path::Path::new(&cwd),
+            &self.config.agent_dir,
+            pa_core::settings::ModelAudience::Human,
+        );
         let models: Vec<Value> = registry
             .get_available()
             .into_iter()

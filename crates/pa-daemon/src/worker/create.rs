@@ -408,7 +408,14 @@ impl Worker {
         let scoped_models = if model_patterns.is_empty() {
             Vec::new()
         } else {
-            let mut registry = crate::state_getters::worker_model_registry(&self.config.agent_dir);
+            // The create-time scope comes from the client's `--models` patterns
+            // or the human's `enabledModels`: resolve it against the human
+            // catalog, the same list the picker shows.
+            let mut registry = crate::state_getters::worker_model_registry(
+                &self.config.agent_dir,
+                &self.config.agent_dir,
+                pa_core::settings::ModelAudience::Human,
+            );
             pa_core::models::resolve_model_scope_from_models_with_readiness(
                 &mut registry,
                 &model_patterns,

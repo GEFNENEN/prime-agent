@@ -3,10 +3,19 @@
 //! by-model attribution computations.
 use super::{json, ModelRegistry, Value};
 
-/// The worker's model registry (auth storage + `models.json`).
-pub(crate) fn worker_model_registry(agent_dir: &std::path::Path) -> ModelRegistry {
+/// The worker's model registry (auth storage + `models.json`), with
+/// the `visibleModels` limit for `audience` attached. Every caller names its
+/// audience: the listing surfaces a human reads and the resolution seams the
+/// agent reaches are different catalogs.
+pub(crate) fn worker_model_registry(
+    cwd: &std::path::Path,
+    agent_dir: &std::path::Path,
+    audience: pa_core::settings::ModelAudience,
+) -> ModelRegistry {
     let auth = pa_core::auth::AuthStorage::create(agent_dir);
-    ModelRegistry::create(auth, agent_dir.join("models.json"))
+    let mut registry = ModelRegistry::create(auth, agent_dir.join("models.json"));
+    registry.apply_visibility(cwd, audience);
+    registry
 }
 
 /// The TS `Usage` wire shape (the TS `emptyUsage`).

@@ -6,9 +6,10 @@
 pub mod thinking_levels;
 
 pub use thinking_levels::{
-    clamp_thinking_level, get_supported_thinking_levels, minimum_reasoning, models_are_equal,
-    supports_thinking, thinking_level_from_str, thinking_level_index, thinking_level_map,
-    EXTENDED_THINKING_LEVELS, SUPPORTED_THINKING_LEVELS,
+    clamp_on_ladder, clamp_thinking_level, clamp_thinking_level_within,
+    get_supported_thinking_levels, minimum_reasoning, models_are_equal,
+    supported_thinking_levels_within, supports_thinking, thinking_level_from_str,
+    thinking_level_index, thinking_level_map, EXTENDED_THINKING_LEVELS, SUPPORTED_THINKING_LEVELS,
 };
 
 use serde::{Deserialize, Serialize};
