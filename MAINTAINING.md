@@ -220,6 +220,25 @@ git worktree remove --force ../pa-base-check
 - 自定义主题从 `<agent_dir>/themes/<name>.json` 加载，仅支持
   `prime/dark/light` 三个内置名之外的 JSON 主题文件。
 - `clean-kernel-state` 只清理 `kernel-state.*` 文件，不删除会话与目录结构。
+- **秘书常驻块的「压缩后保活」方案已评估并否决，未实施。** 评估稿与配套的校验
+  脚本都没有入库，已删除；这里只留结论，避免重走一遍。若将来重启这条线：
+  - system prompt 层是唯一免疫压缩的位置。注入点是 `build_system_prompt`，
+    它只在建会话时执行一次，所以门控一旦定了就不会中途翻转。
+  - `append_system_prompt` 在 resources 层已经被合成为单个 `Vec<String>`，
+    到引擎注入点已无法区分来源。**因此不能在这一层做「只对 root 生效」的门控**
+    —— 门一关，所有子会话会连通用护栏一起失去。
+  - `[SECRETARY-STATE:*]` 这类对话内标记在 Rust 代码里没有读者；状态只活在
+    transcript 里，且只有压缩器在读。注入侧不读 transcript（`messages_path`
+    仅被格式化成一行显示文本）。所以「让注入侧尊重对话里的开关」等于新增读
+    transcript 的机制，并且要动 `build_system_prompt` 的执行时序（它在既有
+    消息读取之前执行），不是在现成位置插十几行。
+  - 存在的 0 字节提示词文件等价于关闭（`resolve_prompt_input` 返回 `Some("")`，
+    渲染侧有空串守卫），可以当文件级开关；但它是静默的（不产生 diagnostic），
+    且项目级文件存在即不再合并全局，所以项目槽位会按仓库生效。
+- `--append-system-prompt` / `--system-prompt` 在交互 TUI 下被静默丢弃：这两个值
+  只经 `pa-cli` 的 print 路径转成 create config 的 `appendSystemPrompt` 传给引擎，
+  而 `pa-tui` 的 `create_config()` 不写这两个键、全目录对 `appendSystem` 零引用。
+  `-p` 模式不受此影响。
 
 ## 9. 相关文档
 
