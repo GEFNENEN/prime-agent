@@ -192,15 +192,32 @@ git worktree remove --force ../pa-base-check
 **(a) 只缺 skill，负载没变** —— `kernel_base_ready` 为真，走
 `sync_python_skills`（`crates/pa-core/src/kernel/bootstrap/venv.rs:192-250`），
 **只装缺的那部分**。判据是 `bootstrap_base_version_current`
-（`…/bootstrap/venv/version.rs:49-65`），它只比对 `runtime_identity`、
+（`…/bootstrap/venv/version.rs:49-65`），它会比对 `runtime_identity`、
 schema、snapshot、额外 uv 参数，**不含 skill 列表**；skill 的覆盖检查在
 `kernel_ready` 里的 `recorded_skills_cover`（同文件 `:30-47`）。
 这一支是增量补装，不需要任何人工干预。
 
-**(b) 负载被覆盖** —— `runtime_identity` 是 `prime-agent-runtime/` 源码哈希
-（`hash_runtime_source`），负载一变它就变，`kernel_base_ready` 为假，走
-`mod.rs:276-299`：`std::fs::remove_dir_all(&venv)` 然后 `bootstrap_venv`
-**整库重建**。也就是说换负载时是**程序自己删整个 venv**，不是「手工删才稳妥」。
+**(b) `kernel_base_ready` 为假** —— 走 `mod.rs:276-299`：
+`std::fs::remove_dir_all(&venv)` 然后 `bootstrap_venv` **整库重建**。
+
+`kernel_base_ready`（`crates/pa-core/src/kernel/bootstrap/venv.rs:260-270`）
+= `bootstrap_base_version_current` 且 `has_prime_agent_runtime_memoized`，
+所以为假的成因不止一类：
+
+- **负载被覆盖**（最常见）：`runtime_identity` 是 `prime-agent-runtime/` 源码
+  哈希（`hash_runtime_source`），负载一变它就变。
+- **schema / snapshot / 额外 uv 参数不匹配**：`version.rs:49-65` 除
+  `runtime_identity` 外还比对这三项。
+- **运行时探测失败**：memo 未命中时 `has_prime_agent_runtime_memoized`
+  退回 `has_prime_agent_runtime(python) && python_imports(python, "dill")`
+  （`crates/pa-core/src/kernel/bootstrap/venv/probe.rs:190-191`），
+  探测不过同样为假。
+
+三类都走同一条整库重建路径。所以看到「rebuilding kernel venv」不要一口断定
+是自己换了负载——也可能是 schema/snapshot/uv 参数变了，或者 venv 里的
+`rlm` / `dill` 已经损坏。
+
+换负载时是**程序自己删整个 venv**，不是「手工删才稳妥」。
 
 **由此得出 `os error 5` 的真正含义**：重建要清空 venv，而 Windows 上目录被
 运行中的 kernel python 占着就清不掉。`mod.rs:284-289` 捕获这个失败并给出
@@ -233,6 +250,10 @@ schema、snapshot、额外 uv 参数，**不含 skill 列表**；skill 的覆盖
 `agent_observe` / `rlm_heartbeat` 不会被移除，记录也照旧——此时看 venv 仍会
 看到 8 个。
 
+这里还有第二道保险：若已有记录覆盖目标列表，`recorded_skills_cover` 为真，
+`kernel_ready` 直接返回真，`mod.rs:237-239` 在进入 `sync_python_skills`
+之前就 return 了，连读写的机会都没有。
+
 结论要分两种 venv：
 
 - **干净 venv**（刚删过或从未建过）跑 `-p`：只有目标列表里的 skill 会被装，
@@ -245,6 +266,9 @@ schema、snapshot、额外 uv 参数，**不含 skill 列表**；skill 的覆盖
 会话跑一次 `python_repl`，然后在 venv 里
 `import agent_observe, rlm_heartbeat` 应成功，且 `__file__` 指向
 `<install-dir>/skills/…`。
+
+本机 `-p` 还观察到过无输出挂起（20 秒内 stdout/stderr 全空），原因未查清，
+这也是一条别拿 `-p` 做验收的理由。
 
 约定：`<stamp>` 取 `<版本>+custom<N>`（build metadata，如 `0.10.1+custom.18`；
 备份文件名据此区分）。
