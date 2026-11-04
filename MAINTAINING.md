@@ -227,9 +227,16 @@ git worktree remove --force ../pa-base-check
 **(a) `kernel_base_ready` 为真** —— 走
 `sync_python_skills`（`crates/pa-core/src/kernel/bootstrap/venv.rs:192-250`），
 **只装缺的那部分**。判据是 `bootstrap_base_version_current`
-（`…/bootstrap/venv/version.rs:49-65`），它会比对 `runtime_identity`、
-schema、snapshot、额外 uv 参数，**不含 skill 列表**；skill 的覆盖检查在
-`kernel_ready` 里的 `recorded_skills_cover`（同文件 `:30-47`）。
+（`…/bootstrap/venv/version.rs:49-65`），它比对 `runtime_identity`、
+schema、snapshot、额外 uv 参数，**不含 skill 列表**。
+
+skill 的覆盖检查在 `kernel_ready` 里的 `recorded_skills_cover`
+（同文件 `:30-47`），它比对的是三项而非仅名字：`bootstrap_skill_key`
+（= `import_name` + `\0` + `package_path`，`:24-26`）、`pyproject_path`、
+`pyproject_hash`（`:40-46`）。所以**只要某个 skill 的 `pyproject` 改了**，
+hash 一变就不算覆盖，同样会触发补装。另外 `current` 为空时直接返回真
+（`:34-36`）——会话目标列表为空时不检查任何东西。
+
 这一支是增量补装。但「不需要人工干预」不等于「不会失败」：
 `sync_python_skills` 先整批装（一次 `uv pip install`，失败再逐个重试），
 **单个 skill 装失败只打 warning、整体仍返回 `Ok`**
