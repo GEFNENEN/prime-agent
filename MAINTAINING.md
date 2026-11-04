@@ -215,23 +215,45 @@ schema、snapshot、额外 uv 参数，**不含 skill 列表**；skill 的覆盖
   （`crates/pa-core/src/kernel/bootstrap/venv/probe.rs:190-191`），
   探测不过同样为假。
 
-三类都走同一条整库重建路径。所以看到「rebuilding kernel venv」不要一口断定
-是自己换了负载——也可能是 schema/snapshot/uv 参数变了，或者 venv 里的
-`rlm` / `dill` 已经损坏。
+过了 bootstrap lock 之后，三类都走同一条整库重建路径。所以看到
+「rebuilding kernel venv」不要一口断定是自己换了负载——也可能是
+schema/snapshot/uv 参数变了，或者 venv 里的 `rlm` / `dill` 已经损坏。
+
+但**重建之前还有一道锁**，它能把流程整条岔开（`mod.rs:241-247`）：
+`acquire_bootstrap_lock(&venv)` 在所有清理动作**之前**执行。若 venv 目录
+对本用户不可写、锁建不出来，直接 `return unwritable_venv(...)`，
+**根本不会走到 `remove_dir_all`**。
+
+`unwritable_venv`（`mod.rs:311-337`）的行为与重建完全不同：
+
+- venv 的 base 不 ready → 报
+  `cannot set up the Python kernel runtime: the kernel venv at … is not writable
+  by this user and does not hold a current runtime. Set PRIME_AGENT_KERNEL_VENV …
+  or set PRIME_AGENT_KERNEL_PYTHON …`，**不是**上面那条 `cannot rebuild`。
+- base 已 ready → **不报错**，只打一条
+  `Warning: Python skills unavailable in … and will be disabled: …`，
+  然后照常返回。
+
+所以遇到内核装不上的问题时，先看是哪条文案：
+
+| 看到的文案 | 含义 | 处置 |
+| --- | --- | --- |
+| `rebuilding kernel venv` 之后 `cannot rebuild … {error}` | 锁建出来了，卡在清空目录 | 按 `{error}` 处理，最常见是停掉占用 venv 的实例 |
+| `is not writable by this user` | 锁都没建出来 | 改 venv 目录权限，或用 `PRIME_AGENT_KERNEL_VENV` 指到可写位置 |
+| `Python skills … will be disabled`（warning，不失败） | 目录不可写但 base 可用 | 内核照跑，只是缺 skill |
 
 换负载时是**程序自己删整个 venv**，不是「手工删才稳妥」。
 
-**重建失败时的错误出口**：重建要清空 venv，而 Windows 上目录被运行中的
-kernel python 占着就清不掉。`mod.rs:284-289` 对 `remove_dir_all` 的**任何**
-失败都抛同一条错误，并把原始 `{error}` 一并带出：
+**`remove_dir_all` 失败时的出口**：`mod.rs:284-289` 对**任何**失败都抛同一条
+错误，并把原始 `{error}` 一并带出：
 
 > cannot rebuild the kernel venv at {…}: {error}. Stop the prime-agent
 > instance that is using it, then retry.
 
-**最常见**的成因确实是被运行中的 kernel 占用（`mod.rs:280-283` 的注释就点名
-`os error 5`）。但这段代码并不假定只有这一种：权限不足、只读属性、
-杀软或索引服务短暂持锁、目录里有非 kernel 进程打开的文件，都会命中同一个
-出口。所以要按 `{error}` 的实际内容处理，而不是一律「停实例」。
+**最常见**的成因是被运行中的 kernel 占用（`mod.rs:280-283` 的注释就点名
+`os error 5`）。但这段代码并不假定只有这一种：只读属性、杀软或索引服务
+短暂持锁、目录里有非 kernel 进程打开的文件，都会命中同一个出口。
+所以要按 `{error}` 的实际内容处理，而不是一律「停实例」。
 手工删 venv 是这类清不掉时的补救手段，不是常规步骤。
 
 换 runtime 负载的正确顺序：覆盖负载 → 确认没有实例在跑 → 起一个真实会话
