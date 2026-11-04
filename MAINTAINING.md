@@ -291,22 +291,30 @@ schema/snapshot/uv 参数变了，或者 venv 里的 `rlm` / `dill` 已经损坏
 
 | 看到的文案 | 含义 | 处置 |
 | --- | --- | --- |
-| `Failed to set up … The packaged prime-agent-runtime directory was not found …` | 找不到负载源码目录（`:233-234`） | 确认 `prime-agent.exe` 旁边有 `prime-agent-runtime/`，或设 `PI_PACKAGE_DIR`；缺了就重装 |
+| `Failed to set up … The packaged prime-agent-runtime directory was not found …` | 负载源码目录缺失或哈希失败，且找不到 packaged runtime（`:233-236`，追加句条件见 `:108-114`） | 确认 `prime-agent.exe` 旁边有 `prime-agent-runtime/`，或设 `PI_PACKAGE_DIR`；缺了就重装 |
 | `Failed to set up … cannot rebuild … {error}` | 锁建出来了，卡在清空目录 | 按 `{error}` 处理，最常见是停掉占用 venv 的实例 |
-| `Failed to set up … Warning: Python skill … failed to install and will be unavailable` | 单个 skill 装失败，内核仍可用 | 查该 skill 的 `pyproject` 依赖；下次启动会重试 |
+| `Warning: Python skill … failed to install and will be unavailable`（warning，**无** `Failed to`） | 单个 skill 装失败，内核仍可用 | 查该 skill 的 `pyproject` 依赖；下次启动会重试 |
 | `cannot set up the Python kernel runtime: … is not writable by this user …`（**无** `Failed to`） | 锁都没建出来 | 改 venv 目录权限，或用 `PRIME_AGENT_KERNEL_VENV` 指到可写位置 |
 | `Warning: Python skills … will be disabled`（warning，不失败） | 目录不可写但 base 可用 | 内核照跑，缺的 skill **静默不可用**，只有这一条 warning |
 
-另外，设了 `PRIME_AGENT_KERNEL_PYTHON` 时**完全不走上面的 venv 流程**
-（`mod.rs:180-217`）：它只检查那个 Python 有没有可用的 `rlm`、默认包和 skill，
-不合格时报 `PRIME_AGENT_KERNEL_PYTHON points to a Python missing …`
-（`mod.rs:212-216`）；缺 skill 时同样只打 `Warning: Python skills unavailable in
-PRIME_AGENT_KERNEL_PYTHON and will be disabled: …` 然后照常返回。
+**注意 `Failed to set up` 与 `Warning:` 是两条独立通道**：前者只在整个
+bootstrap 返回 `Err` 时由 `:304` 加（`mod.rs:304`、`:99-116`），后者来自
+`options.report(...)`（如 `venv.rs:243-246`），此时 `sync_python_skills` 照常
+返回 `Ok`。所以两张文案**不会拼在同一条消息里**——按 `Failed to set up` 去
+grep 上面两条 `Warning:` 行是搜不到的。
 
-最后一行要特别当心：`unwritable_venv` 返回的是 `Ok(python)`，缺的 skill 只是
-`import` 不到；`model_visible_skills` 按 host handler 注册情况过滤，**不看包是否
-真能导入**，所以调用方无从区分「装好了」和「被静默禁用」。
-看到这条 warning 就要自己确认 skill 可用性。
+另外，当 `PRIME_AGENT_KERNEL_PYTHON` 被设成**非空值**时，**完全不走上面的
+venv 流程**（`mod.rs:180-181` 的 `if let Ok(...)` + `if !override_python.is_empty()`；
+不设或设成空串则照常走 `mod.rs:220-221`）：它只检查那个 Python 有没有可用的
+`rlm`、默认包和 skill，不合格时报 `PRIME_AGENT_KERNEL_PYTHON points to a
+Python missing …`（`mod.rs:212-216`）；只缺 skill 时打
+`Warning: Python skills unavailable in PRIME_AGENT_KERNEL_PYTHON and will be
+disabled: …`（`mod.rs:203-206`）然后照常返回。
+
+表里 `Python skills … will be disabled` 那行要特别当心：`unwritable_venv`
+返回的是 `Ok(python)`，缺的 skill 只是 `import` 不到；`model_visible_skills`
+按 host handler 注册情况过滤，**不看包是否真能导入**，所以调用方无从区分
+「装好了」和「被静默禁用」。看到这条 warning 就要自己确认 skill 可用性。
 
 换负载时是**程序自己删整个 venv**，不是「手工删才稳妥」。
 
