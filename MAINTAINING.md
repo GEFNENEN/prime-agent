@@ -199,7 +199,8 @@ schema、snapshot、额外 uv 参数，**不含 skill 列表**；skill 的覆盖
 这一支是增量补装，不需要任何人工干预。
 
 **(b) `kernel_base_ready` 为假** —— 走 `mod.rs:276-299`：
-`std::fs::remove_dir_all(&venv)` 然后 `bootstrap_venv` **整库重建**。
+`let had_venv = venv.exists();` 为真时先 `std::fs::remove_dir_all(&venv)`，
+然后 `bootstrap_venv` **整库重建**；venv 不存在（首次安装）时跳过删除直接新建。
 
 `kernel_base_ready`（`crates/pa-core/src/kernel/bootstrap/venv.rs:260-270`）
 = `bootstrap_base_version_current` 且 `has_prime_agent_runtime_memoized`，
@@ -220,14 +221,22 @@ schema、snapshot、额外 uv 参数，**不含 skill 列表**；skill 的覆盖
 
 换负载时是**程序自己删整个 venv**，不是「手工删才稳妥」。
 
-**由此得出 `os error 5` 的真正含义**：重建要清空 venv，而 Windows 上目录被
-运行中的 kernel python 占着就清不掉。`mod.rs:284-289` 捕获这个失败并给出
-「Stop the prime-agent instance that is using it, then retry」。
-所以手工删 venv 只在**这一种**被占用卡死的情况下是补救手段，不是常规步骤。
+**重建失败时的错误出口**：重建要清空 venv，而 Windows 上目录被运行中的
+kernel python 占着就清不掉。`mod.rs:284-289` 对 `remove_dir_all` 的**任何**
+失败都抛同一条错误，并把原始 `{error}` 一并带出：
+
+> cannot rebuild the kernel venv at {…}: {error}. Stop the prime-agent
+> instance that is using it, then retry.
+
+**最常见**的成因确实是被运行中的 kernel 占用（`mod.rs:280-283` 的注释就点名
+`os error 5`）。但这段代码并不假定只有这一种：权限不足、只读属性、
+杀软或索引服务短暂持锁、目录里有非 kernel 进程打开的文件，都会命中同一个
+出口。所以要按 `{error}` 的实际内容处理，而不是一律「停实例」。
+手工删 venv 是这类清不掉时的补救手段，不是常规步骤。
 
 换 runtime 负载的正确顺序：覆盖负载 → 确认没有实例在跑 → 起一个真实会话
 （daemon/TUI/ACP）跑一次 `python_repl`，它自己会删库重建。
-若有实例在跑，会得到 `os error 5`，此时停实例再重试。
+若有实例在跑，通常得到 `os error 5`，此时停实例再重试。
 
 **哪些技能被装载取决于该会话注册了哪些 host handler**，不是固定全集。
 `model_visible_skills`（`crates/pa-core/src/session_engine/runtime_wiring.rs:215-224`）
