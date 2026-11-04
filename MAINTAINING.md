@@ -171,39 +171,62 @@ git worktree remove --force ../pa-base-check
 
 **必须同步 runtime 负载**：内核 venv 是从 `<install-dir>/prime-agent-runtime`
 （以及 skills 目录）安装的。只换 `prime-agent.exe` 会让新二进制配旧
-`rlm`，内核的运行时探测失败（例如 0.10.1 要求 `bash(persistent, yield_after)`），
-随后重建又被运行中的 kernel python 锁住，表现为 `os error 5`。部署时把仓库的
-`prime-agent-runtime/` 与 `skills/` 一起覆盖到安装位置。
+`rlm`，内核的运行时探测失败（例如 0.10.1 要求 `bash(persistent, yield_after)`）。
+部署时把仓库的 `prime-agent-runtime/` 与 `skills/` 一起覆盖到安装位置。
 
-**删整个 `kernel-venv` 是过头的做法，不要默认这么做。** `prime-agent-runtime`
-是作为可编辑包（`--editable`）装进 venv 的，`.pth` 指向 `<install-dir>` 下的
-源码目录，所以覆盖安装目录里的负载之后，**下一次会话启动就会自己重装**：
+**两种包在 venv 里的存在形式不同**，这决定了刷新机制，别混为一谈：
 
-- `ensure_kernel_venv`（`crates/pa-core/src/kernel/bootstrap/mod.rs:237-275`）
-  先调 `kernel_ready`；它对不上时进 `sync_python_skills`
-  （`crates/pa-core/src/kernel/bootstrap/venv.rs:192-250`），只装缺的那部分。
-- 「对不上」的判据是 `bootstrap_version_current`
-  （`crates/pa-core/src/kernel/bootstrap/venv/version.rs:67-76`），其中
-  `recorded_skills_cover`（同文件 `:30-47`）比对 `.bootstrap-version` 里记录的
-  技能列表与本次会话的目标列表：覆盖就复用，缺任何一项就补装。
-- `runtime_identity` 是 `prime-agent-runtime/` 源码的哈希
-  （`hash_runtime_source`），负载一变这个值就变，`kernel_ready` 必然返回 false。
+| 包 | 形式 | 覆盖 `<install-dir>` 后的效果 |
+| --- | --- | --- |
+| `prime-agent-runtime`（`rlm`） | **物理复制**进 `site-packages`（旁边是普通 `prime_agent_runtime-0.1.0.dist-info`，无 `.pth`） | venv 里的副本仍是旧的，必须重建 |
+| `skills/*` | **editable**，`_editable_impl_*.pth` 指向 `<install-dir>/skills/<name>/src` | 立即生效，无需重装 |
 
-所以正确顺序是：覆盖负载 → 起一个**真实会话**（daemon/TUI/ACP，`-p` 不行，
-见下）跑一次 `python_repl` → 它自动补齐。只有 `os error 5` 那种被占用卡死
-的情况，才需要停掉实例后手工删 venv。
+健康 venv 里 `rlm.__file__` 指向
+`<agent_dir>/kernel-venv/Lib/site-packages/rlm/__init__.py`（不是安装目录），
+而 `agent_observe.__file__` 指向 `<install-dir>/skills/agent-observe/src/…`。
+用这两个路径判断某次装的是哪种形态。
 
-**技能是否装载取决于该会话注册了哪些 host handler**，不是固定全集。
+**`ensure_kernel_venv` 有两条分支，行为完全不同**
+（`crates/pa-core/src/kernel/bootstrap/mod.rs:237-305`）：
+
+**(a) 只缺 skill，负载没变** —— `kernel_base_ready` 为真，走
+`sync_python_skills`（`crates/pa-core/src/kernel/bootstrap/venv.rs:192-250`），
+**只装缺的那部分**。判据是 `bootstrap_base_version_current`
+（`…/bootstrap/venv/version.rs:49-65`），它只比对 `runtime_identity`、
+schema、snapshot、额外 uv 参数，**不含 skill 列表**；skill 的覆盖检查在
+`kernel_ready` 里的 `recorded_skills_cover`（同文件 `:30-47`）。
+这一支是增量补装，不需要任何人工干预。
+
+**(b) 负载被覆盖** —— `runtime_identity` 是 `prime-agent-runtime/` 源码哈希
+（`hash_runtime_source`），负载一变它就变，`kernel_base_ready` 为假，走
+`mod.rs:276-299`：`std::fs::remove_dir_all(&venv)` 然后 `bootstrap_venv`
+**整库重建**。也就是说换负载时是**程序自己删整个 venv**，不是「手工删才稳妥」。
+
+**由此得出 `os error 5` 的真正含义**：重建要清空 venv，而 Windows 上目录被
+运行中的 kernel python 占着就清不掉。`mod.rs:284-289` 捕获这个失败并给出
+「Stop the prime-agent instance that is using it, then retry」。
+所以手工删 venv 只在**这一种**被占用卡死的情况下是补救手段，不是常规步骤。
+
+换 runtime 负载的正确顺序：覆盖负载 → 确认没有实例在跑 → 起一个真实会话
+（daemon/TUI/ACP）跑一次 `python_repl`，它自己会删库重建。
+若有实例在跑，会得到 `os error 5`，此时停实例再重试。
+
+**哪些技能被装载取决于该会话注册了哪些 host handler**，不是固定全集。
 `model_visible_skills`（`crates/pa-core/src/session_engine/runtime_wiring.rs:215-224`）
 把 `CONTROLLER_BACKED_SKILLS`（同文件 `:202-209`：`agent-message`、
 `agent-observe`、`rlm-heartbeat`）中「对应 host request 未注册」的技能从模型可见
 列表中**过滤掉**；`kernel_python_skills`（同文件 `:228-238`）再把剩下的转成
-`KernelPythonSkill` 交给 provisioner 安装。注意这个函数只做过滤，不负责安装。
+`KernelPythonSkill` 交给 provisioner。**这一步只做过滤和转换，不安装任何包**。
 
-后果：`prime-agent -p` 只注册 `agent_message.send`，所以它建出来的 venv 只有
-`agent_message`，**没有** `agent_observe` / `rlm_heartbeat`。这不是缺包，也不代表
-部署出问题——用 `-p` 验证 venv 完整性会得出错误结论。要验证就用 ACP 或 daemon
-会话，装完后在 venv 里 `import agent_observe, rlm_heartbeat` 应成功，且
+`prime-agent -p` 的 handler 由 `inline_subagent_wiring`
+（`crates/pa-cli/src/print_rlm.rs:232-244`）装配，它只调
+`register_agent_message_host_handlers`，而后者只注册
+`agent_message.list_agents` 与 `agent_message.send`
+（`crates/pa-core/src/session_engine/agent_messaging.rs:389-400`）。
+因此 `-p` 的目标列表里没有 `agent-observe` / `rlm-heartbeat`，
+它跑出来的 venv 自然不带这两个包。这不是缺包，也不代表部署出问题，
+**用 `-p` 验证 venv 完整性会得出错误结论**。要验证就用 ACP 或 daemon 会话，
+装完后在 venv 里 `import agent_observe, rlm_heartbeat` 应成功，且
 `__file__` 指向 `<install-dir>/skills/…`。
 
 约定：`<stamp>` 取 `<版本>+custom<N>`（build metadata，如 `0.10.1+custom.18`；
