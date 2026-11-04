@@ -273,6 +273,7 @@ fn a_stalled_subagent_notifies_its_parent() {
             thinking: None,
             child_script: None,
             semantic_spawn: None,
+            factory_child: false,
         },
     )
     .unwrap();
@@ -344,6 +345,7 @@ fn a_repeat_stall_does_not_flood_the_parent() {
             thinking: None,
             child_script: None,
             semantic_spawn: None,
+            factory_child: false,
         },
     )
     .unwrap();
