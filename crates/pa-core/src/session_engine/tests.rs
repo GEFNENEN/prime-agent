@@ -1531,6 +1531,8 @@ async fn a_resolved_model_bill_survives_its_callers_cancellation() {
         .map(|entry| entry["data"].clone())
         .collect();
     assert_eq!(rows, vec![serde_json::to_value(bill).unwrap()]);
+}
+
 /// The configured `turnHook` reaches the real request path: the admitted
 /// turn's first LLM call carries the hook's `additionalContext` appended
 /// to the system prompt.
