@@ -187,8 +187,37 @@ git worktree remove --force ../pa-base-check
 而 `agent_observe.__file__` 指向 `<install-dir>/skills/agent-observe/src/…`。
 用这两个路径判断某次装的是哪种形态。
 
-**`ensure_kernel_venv` 有两条分支，行为完全不同**
-（`crates/pa-core/src/kernel/bootstrap/mod.rs:237-305`）：
+**`ensure_kernel_venv`（`crates/pa-core/src/kernel/bootstrap/mod.rs:224-305`）
+有若干出口，其中两条是主要分支。** 先给完整清单，再展开：
+
+| 行 | 条件 | 结果 |
+| --- | --- | --- |
+| `:233-234` | `require_runtime_source_dir()` 失败（找不到 `prime-agent-runtime`） | `Failed to set up the Python kernel runtime. …` |
+| `:235-236` | `hash_runtime_source()` 失败 | 同上 |
+| `:237-239` | 取锁**之前** `kernel_ready` 已为真 | 直接复用 |
+| `:241-244` | 锁建不出来（目录不可写） | `unwritable_venv`，见下 |
+| `:246` | 锁的其他失败 | 原样上抛，**不套** `Failed to set up…` 前缀 |
+| `:249-251` | 取锁**之后**再查 `kernel_ready` 为真 | 直接复用 |
+| `:256-261` | 无 `.bootstrap-version` 但 venv 还能跑 | **收养，不重建** |
+| `:262-275` | `kernel_base_ready` 为真 | 增量补装 skill |
+| `:276-299` | `kernel_base_ready` 为假 | 删库重建 |
+| `:284-289` | `remove_dir_all` 失败 | `cannot rebuild … {error}` |
+| `:299` | 正常 | 复用新建的 venv |
+
+除 `:246` 外，所有 `Err` 在 `:304` 会被 `format_bootstrap_failure`
+（`mod.rs:99-116`）统一套上 `Failed to set up the Python kernel runtime.`
+前缀，外加一段首次安装/中断升级的说明；若 `packaged_runtime_dir()` 为
+`None`，还会追加 `The packaged prime-agent-runtime directory was not found
+(looked next to the executable at … and PI_PACKAGE_DIR); reinstall prime-agent …`。
+所以 grep 具体文案之前，先知道外层一定有这个前缀。
+
+**:252-261 的收养分支**值得单独说：venv 没有 `.bootstrap-version`、但里面的
+`rlm` 还能跑时，`adopt_unrecorded_venv`（`venv.rs:313-343`）会补写记录——
+用 `write_bootstrap_version(venv, runtime_identity, &[])`，即**空 skill 记录**——
+然后**不重建**。注释说明了原因：记录是最后才写的，bootstrap 被杀就会留下
+「能跑但没记录」的 venv，而重建要删掉其他 worker 正在执行的目录。
+补写的是空记录，所以紧接着的 `kernel_ready` 对非空目标列表仍为假，
+流程会落到下面的增量补装。
 
 **(a) `kernel_base_ready` 为真** —— 走
 `sync_python_skills`（`crates/pa-core/src/kernel/bootstrap/venv.rs:192-250`），
@@ -234,13 +263,20 @@ schema/snapshot/uv 参数变了，或者 venv 里的 `rlm` / `dill` 已经损坏
   `Warning: Python skills unavailable in … and will be disabled: …`，
   然后照常返回。
 
-所以遇到内核装不上的问题时，先看是哪条文案：
+所以遇到内核装不上的问题时，先看是哪条文案（别忘了外层统一有
+`Failed to set up the Python kernel runtime.` 前缀）：
 
 | 看到的文案 | 含义 | 处置 |
 | --- | --- | --- |
+| `The packaged prime-agent-runtime directory was not found …` | 找不到负载源码目录（`:233-234`） | 确认 `prime-agent.exe` 旁边有 `prime-agent-runtime/`，或设 `PI_PACKAGE_DIR`；缺了就重装 |
 | `rebuilding kernel venv` 之后 `cannot rebuild … {error}` | 锁建出来了，卡在清空目录 | 按 `{error}` 处理，最常见是停掉占用 venv 的实例 |
 | `is not writable by this user` | 锁都没建出来 | 改 venv 目录权限，或用 `PRIME_AGENT_KERNEL_VENV` 指到可写位置 |
-| `Python skills … will be disabled`（warning，不失败） | 目录不可写但 base 可用 | 内核照跑，只是缺 skill |
+| `Python skills … will be disabled`（warning，不失败） | 目录不可写但 base 可用 | 内核照跑，缺的 skill **静默不可用**，只有这一条 warning |
+
+最后一行要特别当心：`unwritable_venv` 返回的是 `Ok(python)`，缺的 skill 只是
+`import` 不到；`model_visible_skills` 按 host handler 注册情况过滤，**不看包是否
+真能导入**，所以调用方无从区分「装好了」和「被静默禁用」。
+看到这条 warning 就要自己确认 skill 可用性。
 
 换负载时是**程序自己删整个 venv**，不是「手工删才稳妥」。
 
