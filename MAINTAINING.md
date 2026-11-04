@@ -171,8 +171,9 @@ git worktree remove --force ../pa-base-check
 
 **必须同步 runtime 负载**：内核 venv 是从 `<install-dir>/prime-agent-runtime`
 （以及 skills 目录）安装的。只换 `prime-agent.exe` 会让新二进制配旧
-`rlm`，内核的运行时探测失败（例如 0.10.1 要求 `bash(persistent, yield_after)`）。
-部署时把仓库的 `prime-agent-runtime/` 与 `skills/` 一起覆盖到安装位置。
+`rlm`，内核的运行时探测失败（历史例子：0.10.1 要求过
+`bash(persistent, yield_after)`）。部署时把仓库的
+`prime-agent-runtime/` 与 `skills/` 一起覆盖到安装位置。
 
 **两种包在 venv 里的存在形式不同**，这决定了刷新机制，别混为一谈：
 
@@ -189,7 +190,7 @@ git worktree remove --force ../pa-base-check
 **`ensure_kernel_venv` 有两条分支，行为完全不同**
 （`crates/pa-core/src/kernel/bootstrap/mod.rs:237-305`）：
 
-**(a) 只缺 skill，负载没变** —— `kernel_base_ready` 为真，走
+**(a) `kernel_base_ready` 为真** —— 走
 `sync_python_skills`（`crates/pa-core/src/kernel/bootstrap/venv.rs:192-250`），
 **只装缺的那部分**。判据是 `bootstrap_base_version_current`
 （`…/bootstrap/venv/version.rs:49-65`），它会比对 `runtime_identity`、
