@@ -225,7 +225,15 @@ git worktree remove --force ../pa-base-check
 （`…/bootstrap/venv/version.rs:49-65`），它会比对 `runtime_identity`、
 schema、snapshot、额外 uv 参数，**不含 skill 列表**；skill 的覆盖检查在
 `kernel_ready` 里的 `recorded_skills_cover`（同文件 `:30-47`）。
-这一支是增量补装，不需要任何人工干预。
+这一支是增量补装。但「不需要人工干预」不等于「不会失败」：
+`sync_python_skills` 先整批装（一次 `uv pip install`，失败再逐个重试），
+**单个 skill 装失败只打 warning、整体仍返回 `Ok`**
+（`venv.rs:219-249`，warning 文案见 `:243-246`），
+而且写回的 `merged` 只含成功的那些（`:251-257`），
+所以装失败的 skill 下次启动会被再次尝试。
+
+看到 `Warning: Python skill … failed to install and will be unavailable`
+时，内核本身是好的，缺的是那一个 skill；查对应 `pyproject` 的依赖即可。
 
 **(b) `kernel_base_ready` 为假** —— 走 `mod.rs:276-299`：
 `let had_venv = venv.exists();` 为真时先 `std::fs::remove_dir_all(&venv)`，
