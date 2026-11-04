@@ -188,33 +188,34 @@ git worktree remove --force ../pa-base-check
 用这两个路径判断某次装的是哪种形态。
 
 **`ensure_kernel_venv`（`crates/pa-core/src/kernel/bootstrap/mod.rs:224-305`）
-有若干出口，其中两条是主要分支。** 先给完整清单，再展开：
+有若干出口，其中两条是主要分支。** 完整清单（「报错」列说明这条出口失败时
+用户看到什么，`—` 表示不报错）：
 
-| 行 | 条件 | 结果 |
-| --- | --- | --- |
-| `:233-234` | `require_runtime_source_dir()` 失败（找不到 `prime-agent-runtime`） | `Failed to set up the Python kernel runtime. …` |
-| `:235-236` | `hash_runtime_source()` 失败 | 同上 |
-| `:237-239` | 取锁**之前** `kernel_ready` 已为真 | 直接复用 |
-| `:241-244` | 锁建不出来（目录不可写） | `unwritable_venv`，见下 |
-| `:246` | 锁的其他失败 | 原样上抛，**不套** `Failed to set up…` 前缀 |
-| `:249-251` | 取锁**之后**再查 `kernel_ready` 为真 | 直接复用 |
-| `:256-261` | 无 `.bootstrap-version` 但 venv 还能跑 | **收养，不重建** |
-| `:262-275` | `kernel_base_ready` 为真 | 增量补装 skill |
-| `:276-299` | `kernel_base_ready` 为假 | 删库重建 |
-| `:284-289` | `remove_dir_all` 失败 | `cannot rebuild … {error}` |
-| `:299` | 正常 | 复用新建的 venv |
+| 行 | 条件 | 结果 | 报错 |
+| --- | --- | --- | --- |
+| `:233-234` | `require_runtime_source_dir()` 失败（找不到 `prime-agent-runtime`） | 早退 | `Failed to set up …`（**调用点** `map_err` 加，到不了 `:304`） |
+| `:235-236` | `hash_runtime_source()` 失败 | 早退 | 同上 |
+| `:237-239` | 取锁**之前** `kernel_ready` 已为真 | 直接复用 | — |
+| `:241-244` | 锁建不出来（目录不可写） | `unwritable_venv` | 自带 `cannot set up …`——是 `cannot`，**不是** `Failed to` |
+| `:246` | 锁的其他失败 | 原样上抛 | **无前缀** |
+| `:249-251` | 取锁**之后**再查 `kernel_ready` 为真 | 直接复用 | — |
+| `:256-261` | 无 `.bootstrap-version` 但 venv 还能跑 | **收养，不重建** | — |
+| `:262-275` | `kernel_base_ready` 为真 | 增量补装 skill | 失败时经 `:304` |
+| `:276-299` | `kernel_base_ready` 为假 | 删库重建 | 失败时经 `:304` |
+| `:284-289` | `remove_dir_all` 失败 | 早退 | `cannot rebuild … {error}`，再经 `:304` 套前缀 |
+| `:299` | 正常 | 复用新建的 venv | — |
 
-错误前缀不是统一加在外的，分三层，别用一条规则去 grep：
+「经 `:304`」指 `result.map_err(format_bootstrap_failure)`（`mod.rs:99-116`）：
+在 `Failed to set up the Python kernel runtime.` 之后接 `{error:#}`，再加一段
+首次安装/中断升级说明；若 `packaged_runtime_dir()` 为 `None`（`:108-114`），
+还会追加 `The packaged prime-agent-runtime directory was not found (looked next
+to the executable at … and PI_PACKAGE_DIR); reinstall prime-agent …`。
 
-| 出口 | 前缀 |
-| --- | --- |
-| `:234` / `:236` | 在**调用点**用 `map_err(format_bootstrap_failure)` 包装后早退，到不了 `:304`，加 `Failed to set up the Python kernel runtime.` |
-| `:246`（锁的其他失败） | 原样上抛，**无前缀** |
-| `:244`（`unwritable_venv`，在 `:248` 的 async 块**之外**直接 return） | 自带 `cannot set up the Python kernel runtime: …`——注意是 `cannot`，**不是** `Failed to` |
-| `:263` / `:273` / `:284-289` / `:298` | 在 `:304` 由 `format_bootstrap_failure`（`mod.rs:99-116`）套 `Failed to set up the Python kernel runtime.`，外加首次安装/中断升级说明；若 `packaged_runtime_dir()` 为 `None` 还会追加 `The packaged prime-agent-runtime directory was not found (looked next to the executable at … and PI_PACKAGE_DIR); reinstall prime-agent …` |
-
-`Failed to set up` 和 `cannot set up` 只差两个词、后果却完全不同，排查时容易
-看错。按文案定位问题时，先用下面这张表确认是哪一类。
+所以前缀分四类，别用一条规则去 grep：`map_err` 在调用点加的（`:234`/`:236`）、
+**无前缀**的（`:246`）、`unwritable_venv` 自带的 `cannot set up`（`:244`）、
+以及 `:304` 统一加的（`:263`/`:273`/`:284-289`/`:298`）。`Failed to set up`
+和 `cannot set up` 只差两个词、后果却完全不同，排查时容易看错；按文案定位
+问题用后面「先看是哪条文案」那张表。
 
 **:252-261 的收养分支**值得单独说：venv 没有 `.bootstrap-version`、但里面的
 `rlm` 还能跑时，`adopt_unrecorded_venv`（`venv.rs:313-343`）会补写记录——
