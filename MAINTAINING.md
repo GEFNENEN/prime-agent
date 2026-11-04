@@ -223,11 +223,28 @@ schema、snapshot、额外 uv 参数，**不含 skill 列表**；skill 的覆盖
 `register_agent_message_host_handlers`，而后者只注册
 `agent_message.list_agents` 与 `agent_message.send`
 （`crates/pa-core/src/session_engine/agent_messaging.rs:389-400`）。
-因此 `-p` 的目标列表里没有 `agent-observe` / `rlm-heartbeat`，
-它跑出来的 venv 自然不带这两个包。这不是缺包，也不代表部署出问题，
-**用 `-p` 验证 venv 完整性会得出错误结论**。要验证就用 ACP 或 daemon 会话，
-装完后在 venv 里 `import agent_observe, rlm_heartbeat` 应成功，且
-`__file__` 指向 `<install-dir>/skills/…`。
+因此 `-p` 的目标列表里没有 `agent-observe` / `rlm-heartbeat`。
+
+**但 `-p` 只会往 venv 里加，不会减。** `sync_python_skills` 先把旧
+`.bootstrap-version` 里记录、且 `package_path` 目录仍在的 skill 读成
+`installed`（`crates/pa-core/src/kernel/bootstrap/venv.rs:178-190`），只把目标列表
+里缺的追加进去，最后把 `merged`（旧记录 ∪ 新装）写回
+（同文件 `:251-257`）。所以在**已经装了这 8 个 skill 的 venv** 上跑 `-p`，
+`agent_observe` / `rlm_heartbeat` 不会被移除，记录也照旧——此时看 venv 仍会
+看到 8 个。
+
+结论要分两种 venv：
+
+- **干净 venv**（刚删过或从未建过）跑 `-p`：只有目标列表里的 skill 会被装，
+  `agent-observe` / `rlm-heartbeat` 缺席。这不是缺包，也不代表部署出问题，
+  **此时用 `-p` 验证 venv 完整性会得出错误结论**。
+- **已有 venv** 跑 `-p`：旧 skill 被保留，看不出差异，`-p` 也不会替你清理
+  多余项。
+
+所以判断 venv 是否完整应当直接看内容，而不是靠跑 `-p` 观察：用 ACP 或 daemon
+会话跑一次 `python_repl`，然后在 venv 里
+`import agent_observe, rlm_heartbeat` 应成功，且 `__file__` 指向
+`<install-dir>/skills/…`。
 
 约定：`<stamp>` 取 `<版本>+custom<N>`（build metadata，如 `0.10.1+custom.18`；
 备份文件名据此区分）。
