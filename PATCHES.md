@@ -4,7 +4,7 @@
 补丁被移除或合并进上游后，对应条目直接删除，不保留历史记录（历史见
 `git log main..custom`）。
 
-- 基线：`v0.10.3-beta.5`（上游 `9cf0d47e2`；tag 提交为 `5543b66e5`，tag-only）
+- 基线：`v0.10.3-beta.5`（上游 tag 提交 `5543b66e5`，tag-only；同步点 `c4d420183`）
 - 补丁数：**37**
 - 维护流程见 [MAINTAINING.md](MAINTAINING.md)
 
@@ -152,6 +152,49 @@ exe 同目录 `package.json` 的 version（`crates/pa-cli/src/config.rs`），�
 `custom.29` 会让新构建在 `--version`、备份文件名和回滚判断上与它无法区分，所以
 `custom.28` 之后直接跳到 `custom.30`。安装目录里当前那份的备份是
 `prime-agent.exe.bak-0.10.2+custom.29`。
+
+**本次同步（`custom.33` → `custom.34`，同步到上游 `c4d420183`）**：上游没有发新
+tag，`v0.10.3-beta.5` 仍是基线，但 `main` 前进了 45 个提交（其中 13 个不在本仓
+树里）。二进制内容变了，按上面同一条理由升到 `custom.34`。
+
+换基线时上游 `Cargo.toml` 的版本行是 `0.10.2`（分支不 bump，版本号只活在 tag-only
+提交里），所以 rebase 到 `upstream/main` 会让树显示 `0.10.2`。这次做法是 rebase
+到 `upstream/main` 后把工作区版本行恢复成 `0.10.3-beta.5+custom.34`，与实际功能
+基线一致；`Cargo.lock` 同步重写。
+
+三条上游改动与本地补丁正面相撞，化解方式记在这里：
+
+1. `#3849`（`rlm.spawn: start a child in a given cwd`）新增了
+   `rlm_child_model::resolve_child_cwd`——带 `canonicalize` 和目录校验。本地
+   `visibleModels` 补丁（第 36 行）此前在 `rlm.create_session` 路径上用内联
+   `match` 拼 cwd，两者语义重叠。**采纳上游**：内联 `match` 换成
+   `resolve_child_cwd`，于是 `rlm.spawn` 与 `rlm.create_session` 都走同一份
+   校验（后者以前不做目录存在性检查）。`rlm_children.rs` 与
+   `rlm_children/host.rs` 的 import 补上 `resolve_child_cwd`。
+2. `#3777`（计费行统计）给 `RlmSessionIdentity` 加了 `factory_child` 字段。
+   `agent_engine/tests/empty_reply.rs` 两处结构体字面量补 `factory_child: false`。
+3. 本地把 `assert_thinking_supported` 换成了 `clamp_child_thinking`（第 36 行），
+   并在当时删掉了 `bail` 的 import；上游新代码仍用 `bail!`，于是
+   `rlm_child_model.rs` 要把 `bail` 加回 `use anyhow::{...}`。
+
+`session_engine/tests.rs` 的冲突还有一处手工失误要记：解决时把上游新增的
+`a_resolved_model_bill_survives_its_callers_cancellation`（`#3777`）与本地
+`an_admitted_turn_runs_the_turn_hook_into_the_system_prompt` 之间的闭合大括号
+一并删掉了，两个测试体因此被判成未闭合。已按 `upstream/main` 的原文补回 `}`。
+这类「删标记行时连带吃掉相邻 `}`」在测试文件里很常见，下次解决冲突后先跑一次
+`cargo check -p <crate> --all-targets` 再 `rebase --continue`。
+
+本次同步另有两点观察，不是本次引入的问题：
+
+- **`cargo clippy -D warnings` 在基线上同样失败**：本机工具链比上游 CI 新，
+  `fetch_update` 弃用、`assert!(x.is_empty())` 之类的新 lint 会命中上游代码
+  （`vendor/crossterm`、`pa-telemetry`、`pa-ai` 的生成文件）。在干净的上游
+  worktree 上复现同样一组错误，所以不把 clippy 当成本次门禁；`cargo fmt --check`
+  是通过的。
+- **`list-models` 打印完不退出**是既有行为，与版本无关：把 stdin 固定成同一个
+  空文件后 `custom.32`、`custom.33`、`custom.34` 都会在打印后挂住。隔离
+  `agent_dir` 时能正常退出（`exit=1`，无已认证模型）。此前「某一版挂、另一版
+  正常」的结论是测法造成的假象（stdin 句柄不同）。
 
 `0e7a77c18`（daemon 把 provider 头贴到 `Model` 上，现为补丁 29）**已定性为正式
 补丁，不是多余的**：上游 `c4c238ca0` 的 `opencode_headers::apply` 只在 provider
