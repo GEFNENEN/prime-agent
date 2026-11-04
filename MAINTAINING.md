@@ -283,16 +283,25 @@ schema/snapshot/uv 参数变了，或者 venv 里的 `rlm` / `dill` 已经损坏
   `Warning: Python skills unavailable in … and will be disabled: …`，
   然后照常返回。
 
-所以遇到内核装不上的问题时，先看是哪条文案。**前缀不统一**：`Failed to set up…`
-只在 `:304` 那一类错误上有；`is not writable` 那条来自 `:244` 的
-`unwritable_venv`，开头是 `cannot set up…`，**没有** `Failed to` 前缀：
+所以遇到内核装不上的问题时，先看是哪条文案。`Failed to set up…` 覆盖**两处**：
+`:234`/`:236` 在调用点加（负载目录缺失、哈希失败），以及
+`:263`/`:273`/`:284-289`/`:298` 在 `:304` 加。唯一没有该前缀的是 `:244` 的
+`unwritable_venv`（开头 `cannot set up…`）和 `:246` 的原样上抛。
+换句话说，**看到 `Failed to set up` 并不能反推是哪条路径**，得看后面接的内容：
 
 | 看到的文案 | 含义 | 处置 |
 | --- | --- | --- |
 | `Failed to set up … The packaged prime-agent-runtime directory was not found …` | 找不到负载源码目录（`:233-234`） | 确认 `prime-agent.exe` 旁边有 `prime-agent-runtime/`，或设 `PI_PACKAGE_DIR`；缺了就重装 |
 | `Failed to set up … cannot rebuild … {error}` | 锁建出来了，卡在清空目录 | 按 `{error}` 处理，最常见是停掉占用 venv 的实例 |
+| `Failed to set up … Warning: Python skill … failed to install and will be unavailable` | 单个 skill 装失败，内核仍可用 | 查该 skill 的 `pyproject` 依赖；下次启动会重试 |
 | `cannot set up the Python kernel runtime: … is not writable by this user …`（**无** `Failed to`） | 锁都没建出来 | 改 venv 目录权限，或用 `PRIME_AGENT_KERNEL_VENV` 指到可写位置 |
 | `Warning: Python skills … will be disabled`（warning，不失败） | 目录不可写但 base 可用 | 内核照跑，缺的 skill **静默不可用**，只有这一条 warning |
+
+另外，设了 `PRIME_AGENT_KERNEL_PYTHON` 时**完全不走上面的 venv 流程**
+（`mod.rs:180-217`）：它只检查那个 Python 有没有可用的 `rlm`、默认包和 skill，
+不合格时报 `PRIME_AGENT_KERNEL_PYTHON points to a Python missing …`
+（`mod.rs:212-216`）；缺 skill 时同样只打 `Warning: Python skills unavailable in
+PRIME_AGENT_KERNEL_PYTHON and will be disabled: …` 然后照常返回。
 
 最后一行要特别当心：`unwritable_venv` 返回的是 `Ok(python)`，缺的 skill 只是
 `import` 不到；`model_visible_skills` 按 host handler 注册情况过滤，**不看包是否
