@@ -154,8 +154,9 @@ exe 同目录 `package.json` 的 version（`crates/pa-cli/src/config.rs`），�
 `prime-agent.exe.bak-0.10.2+custom.29`。
 
 **本次同步（`custom.33` → `custom.34`，同步到上游 `c4d420183`）**：上游没有发新
-tag，`v0.10.3-beta.5` 仍是基线，但 `main` 前进了 45 个提交（其中 13 个不在本仓
-树里）。二进制内容变了，按上面同一条理由升到 `custom.34`。
+tag，`v0.10.3-beta.5` 仍是基线，但 `main` 已有新提交。本地树经 rebase 重写，
+`v0.10.3-beta.5` 已不是 `HEAD` 的祖先，「前进多少个提交」没有稳定含义，所以这里
+不写数字。二进制内容变了，按上面同一条理由升到 `custom.34`。
 
 换基线时上游 `Cargo.toml` 的版本行是 `0.10.2`（分支不 bump，版本号只活在 tag-only
 提交里），所以 rebase 到 `upstream/main` 会让树显示 `0.10.2`。这次做法是 rebase
