@@ -13,7 +13,9 @@
 `提交` 列存的是当前树里的 hash。rebase 会重写 hash，届时这一列会全部失效；
 失效时用 `git log -1 --format=%s <hash>` 取原来的标题，再用
 `git log --fixed-strings --grep=<标题>` 在 HEAD 里重新定位（本轮同步就是这样把
-全部 37 条修回来的）。
+全部 37 条修回来的）。**旧 hash 也可能随 rebase 一起不可达**——那时第一步取不到
+标题，只能拿上一版文件里的摘要关键词去 `git log --all --format='%h %s'
+--fixed-strings --grep=<关键词>` 兜底。rebase 前先把这张表备份一份最省事。
 
 | # | 提交 | 类型 | 摘要 |
 | --- | --- | --- | --- |
@@ -69,8 +71,8 @@ rebase 修复、收尾提交、行尾修复逐项对照；任何一侧新增提�
 
 补丁 26–31 是补录条目：它们一直在 `custom` 上（均为 HEAD 的祖先），此前没进清单，
 导致 rebase 时没人知道有这几处需要重新应用或验证。其中 `144a81bf2`（补丁 28）
-新增 257 行（`rpc/cron.rs`、`rpc/compaction.rs` 加一个调度器），体量最大、风险最高，
-rebase 到它时按标题重放并补一次验证。
+体量最大、风险最高——新增一个 RPC 调度器与阈值压缩（`rpc/cron.rs`、
+`rpc/compaction.rs`），rebase 到它时按标题重放并补一次验证。
 
 ## 版本号为什么跳号
 
@@ -93,9 +95,10 @@ stamp 提交写于哪个基线，rebase 后正文里的版本号可能与实际�
 
 **冲突化解（`v0.10.2` → `v0.10.3-beta.5` 那次，`c4d420183` 同步同样适用）**
 
-1. `#3849` 的 `rlm_child_model::resolve_child_cwd` 与补丁 36 内联 `match` 拼 cwd
-   语义重叠：**采纳上游**，内联 `match` 换成 `resolve_child_cwd`，`rlm_children.rs`
-   与 `rlm_children/host.rs` 补 import。
+1. `#3849` 的 `rlm_child_model::resolve_child_cwd` 与 `rlm_children/host.rs` 里原有
+   的内联 `match &request.cwd` 语义重叠（那个 `match` 是上游 `v0.10.2` 就有的，
+   不是本分支补丁）：**采纳上游**，内联 `match` 换成 `resolve_child_cwd`，
+   `rlm_children.rs` 与 `rlm_children/host.rs` 补 import。
 2. `#3777` 给 `RlmSessionIdentity` 加 `factory_child` 字段：
    `agent_engine/tests/empty_reply.rs` 两处结构体字面量补 `factory_child: false`。
 3. 本地把 `assert_thinking_supported` 换成 `clamp_child_thinking` 时删过 `bail`
