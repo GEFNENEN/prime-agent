@@ -10,12 +10,21 @@
 - 补丁清单见下表
 - 维护流程见 [MAINTAINING.md](MAINTAINING.md)
 
-`提交` 列存的是当前树里的 hash。rebase 会重写 hash，届时这一列会全部失效；
-失效时用 `git log -1 --format=%s <hash>` 取原来的标题，再用
-`git log --fixed-strings --grep=<标题>` 在 HEAD 里重新定位（本轮同步就是这样把
-全部 37 条修回来的）。**旧 hash 也可能随 rebase 一起不可达**——那时第一步取不到
-标题，只能拿上一版文件里的摘要关键词去 `git log --all --format='%h %s'
---fixed-strings --grep=<关键词>` 兜底。rebase 前先把这张表备份一份最省事。
+`提交` 列存的是当前树里的 hash。rebase 会重写 hash，届时这一列会全部失效。
+
+**rebase 前先把这张表备份一份**——旧的 hash 可能随 rebase 一起不可达（本轮那 37
+个就只能通过本地 tag `custom-pre-sync-20261104` 找回，且该 tag 没推到 origin），
+到时候连标题都取不到。备份之后按下面两步回填：
+
+1. 用 `git log -1 --format=%s <旧hash>` 取原来的英文标题。
+2. 用 `git log --fixed-strings --grep=<该标题>` 在 HEAD 里定位（本轮同步就是这样
+   把全部 37 条修回来的）。
+
+没有备份、旧 hash 又已不可达时，只剩人工对照：`git log --all --format='%h %s'`
+把标题全列出来，按语义认。**注意表格「摘要」列是中文转述，不是可以 grep 的键**
+——拿它去 `--grep` 一条都命中不了（提交标题是英文）。要 grep 得用标题里的英文片段，
+例如 `cwd visible`；片段可能命中多条（`busy kernel` 就同时命中本条补丁和上游一条），
+所以只用它缩小范围，最后仍要拿**完整标题**定位，完整标题才会唯一。
 
 | # | 提交 | 类型 | 摘要 |
 | --- | --- | --- | --- |
