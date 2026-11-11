@@ -326,6 +326,17 @@ class McpRegistryTest(unittest.TestCase):
         self.assertEqual(env, {"PATH": "/bin", "TOKEN": "value"})
         self.assertNotIn("UNRELATED", env)
 
+    def test_stdio_env_accepts_literal_values(self):
+        with mock.patch.dict(os.environ, {"PATH": "/bin", "UNRELATED": "no"}, clear=True):
+            env = mcp._stdio_env(
+                {"env": {"HINDSIGHT_MCP_HARNESS": {"value": "dcode"}}}
+            )
+        self.assertEqual(env, {"PATH": "/bin", "HINDSIGHT_MCP_HARNESS": "dcode"})
+
+    def test_stdio_env_rejects_mixed_reference_shapes(self):
+        with self.assertRaisesRegex(ValueError, "value"):
+            mcp._stdio_env({"env": {"BOTH": {"env": "SOURCE", "value": "literal"}}})
+
     def test_acp_headers_never_consult_or_override_host_oauth(self):
         config = {
             "type": "http",

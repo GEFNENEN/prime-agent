@@ -144,7 +144,8 @@ pub enum McpServerConfig {
         args: Option<Vec<String>>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         cwd: Option<String>,
-        /// Environment variables resolved from the kernel environment.
+        /// Child environment entries: an ambient-variable reference or a
+        /// non-secret literal value per entry.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         env: Option<HashMap<String, EnvRef>>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -194,11 +195,17 @@ impl McpServerConfig {
     }
 }
 
-/// `{ "env": "<name>" }` stdio env reference.
+/// One stdio child environment entry: either `{ "env": "<name>" }` to copy a
+/// value from the process environment, or `{ "value": "<literal>" }` for a
+/// non-secret fixed value stored in settings.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct EnvRef {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub env: Option<String>,
+    /// A literal value written into the child environment. Settings are
+    /// plaintext: keep credentials in `env` references instead.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub value: Option<String>,
 }
 
 /// Session-scoped server supplied by the active ACP client: literal
@@ -1121,6 +1128,26 @@ mod tests {
             .unwrap();
             assert_eq!(parsed, expected, "{key}");
         }
+    }
+
+    #[test]
+    fn stdio_env_accepts_env_references_and_literal_values() {
+        let parsed: McpServerConfig = serde_json::from_value(serde_json::json!({
+            "type": "stdio",
+            "command": "node",
+            "env": {
+                "FROM_ENV": {"env": "TOKEN"},
+                "LITERAL": {"value": "dcode"}
+            }
+        }))
+        .unwrap();
+        let McpServerConfig::Stdio { env: Some(env), .. } = parsed else {
+            panic!("expected a stdio server with env entries");
+        };
+        assert_eq!(env["FROM_ENV"].env.as_deref(), Some("TOKEN"));
+        assert!(env["FROM_ENV"].value.is_none());
+        assert_eq!(env["LITERAL"].value.as_deref(), Some("dcode"));
+        assert!(env["LITERAL"].env.is_none());
     }
 
     #[test]
