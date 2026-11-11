@@ -65,6 +65,9 @@
 | 35 | `d724f0d93` | feat | TUI：`PASTE_TRACE` 打印粘贴路径上的原始终端事件 |
 | 36 | `7fbbf4003` | feat | 按受众（人 / agent）限定可见模型与推理档位：`visibleModels`、`thinkingLevels` |
 | 37 | `9df0655b4` | fix | `/model` picker 接上 `visibleModels.human`（收尾：`e3a34b38b`、`0855cfc01`） |
+| 38 | `c72a177bd` | feat | MCP 调用默认超时：全局设置 `mcpCallTimeoutMs`，server 自带的 `callTimeoutMs` 优先 |
+| 39 | `590e11510` | feat | MCP stdio 的 `env` 支持字面值（`{"value": ...}` 与 `--env-value CHILD=VALUE`） |
+| 40 | `01acdaf95` | fix | `python_repl` 的 per-call 超时上限跟随会话的 `pythonCellTimeoutMs` |
 
 表格按**行为补丁**计数，所以行数与提交数**不相等**：同一个补丁的后续收尾提交
 （对已入表补丁的修正、重构、补测试）并入该行的摘要，不另开一行——表末那条就是
@@ -96,6 +99,7 @@ rebase 修复、收尾提交、行尾修复逐项对照；任何一侧新增提�
 | `custom.32` | 不含 `/model` picker 过滤（14:40 构建，装过安装目录） |
 | `custom.33` | 含 `9df0655b4` 及收尾 |
 | `custom.34` | 本次同步到 `c4d420183`。二进制内容变了，所以升号 |
+| `custom.35` | 在 `custom.34` 之上加了 MCP 调用超时（`mcpCallTimeoutMs`）、MCP `env` 字面值，以及 `python_repl` 的 per-call 超时上限（补丁 38–40） |
 
 stamp 提交写于哪个基线，rebase 后正文里的版本号可能与实际写入的不一致；那种提交
 正文不追改（改写历史只为一个字符串不值当）。
