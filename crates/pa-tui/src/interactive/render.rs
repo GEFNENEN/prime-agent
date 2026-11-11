@@ -32,7 +32,16 @@ fn typed_keys(text: &str) -> Vec<KeyEvent> {
 pub(super) fn apply_startup_chrome(view: &mut AgentView, options: &InteractiveOptions) {
     view.chrome.version.clone_from(&options.version);
     view.chrome.cwd = options.cwd.to_string_lossy().to_string();
-    view.chrome.chat_name = crate::chrome::display_name(&view.chrome.cwd);
+    // Until the attach reports the session's own name, the bar shows the
+    // startup placeholder: `unnamed` beside this process's directory.
+    view.chrome.chat_name = crate::chrome::UNNAMED_SESSION.to_string();
+    view.chrome.chat_path = Some(crate::chrome::ChatPath {
+        session_dir: view.chrome.cwd.clone(),
+        cwd: std::env::current_dir().map_or_else(
+            |_| view.chrome.cwd.clone(),
+            |cwd| cwd.to_string_lossy().into_owned(),
+        ),
+    });
     view.chrome.show_manage = !options.no_session;
     view.chrome.tray_depth = options.session_rlm_depth;
     view.chrome.activity = Some(crate::chrome::ActivityDock::default());

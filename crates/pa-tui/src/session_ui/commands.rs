@@ -877,7 +877,7 @@ impl SessionUi {
         {
             Ok(_) => {
                 self.session_name = Some(name.to_string());
-                view.chrome.chat_name = self.session_display();
+                self.sync_chat_label(view);
                 self.plain_row(&format!("Session name set: {name}"), view);
                 true
             }
