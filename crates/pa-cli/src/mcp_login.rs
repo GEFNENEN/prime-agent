@@ -48,6 +48,8 @@ pub(crate) fn cli_mcp_manager(cwd: &std::path::Path, agent_dir: &std::path::Path
         )
     });
     let oauth_user_servers = std::sync::Arc::clone(&user_servers);
+    let timeout_cwd = cwd.to_path_buf();
+    let timeout_agent_dir = agent_dir.to_path_buf();
     McpManager::new(McpManagerOptions {
         auth_storage: AuthStorage::create_with_oauth(
             agent_dir,
@@ -64,6 +66,11 @@ pub(crate) fn cli_mcp_manager(cwd: &std::path::Path, agent_dir: &std::path::Path
                 .mcp_catalog_sources
                 .clone()
                 .unwrap_or_default()
+        })),
+        get_default_call_timeout_ms: Some(Box::new(move || {
+            pa_core::settings::SettingsManager::create(&timeout_cwd, &timeout_agent_dir)
+                .global_settings()
+                .mcp_call_timeout_ms
         })),
         remote_source: None,
         probe_override: None,
