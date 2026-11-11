@@ -78,7 +78,7 @@ git fetch upstream --tags --prune
    rg -n "CREATE_NO_WINDOW" crates/pa-core/src/platform/process.rs
    rg -n "turn_hook|set_turn_hook" crates/pa-core/src/session_engine/engine.rs
    rg -n "stop_hook|set_stop_hook" crates/pa-core/src/session_engine/engine.rs
-   rg -n "retry_nudge" crates/pa-core/src/session_engine
+   rg -n "stalled_run_notice" crates/pa-daemon/src/agent_engine
    rg -n "clean_kernel_state" crates/pa-cli/src
    rg -n "resolve_theme" crates/pa-tui/src
    ```
@@ -99,10 +99,10 @@ git fetch upstream --tags --prune
 
 | 位置 | 原因 | 处理要点 |
 | --- | --- | --- |
-| `crates/pa-core/src/session_engine/engine.rs` | turnHook 接在 `transform_context` / `get_system_prompt` 组装处；stopHook 接在 AgentEnd | 保留上游新的闭包/结构，把 hook 包装插到最外层；确认 `set_turn_hook` / `set_stop_hook` / `set_retry_nudge_slot` 都还在 |
+| `crates/pa-core/src/session_engine/engine.rs` | turnHook 接在 `transform_context` / `get_system_prompt` 组装处；stopHook 接在 AgentEnd | 保留上游新的闭包/结构，把 hook 包装插到最外层；确认 `set_turn_hook` / `set_stop_hook` 都还在 |
 | `crates/pa-core/src/settings/{types,load}.rs` | 上游新增设置键（如保留未知键） | 我们的 `turnHook/stopHook/updateGuard` 字段作为增量保留 |
-| `crates/pa-core/src/session_engine/mod.rs`、`wiring.rs` | `AgentSession` 字段与构造 | 新字段（如 `retry_nudge`）与初始化、setter 一起保留 |
-| `crates/pa-daemon/src/agent_engine/turn/model.rs` | 空回复重试在 attempt 闭包内 | 对齐上游循环结构后重新插入；`drop_trailing_assistant` 必须在重跑前调用 |
+| `crates/pa-core/src/session_engine/mod.rs`、`wiring.rs` | `AgentSession` 字段与构造 | 新字段（如 `turn_hook`）与初始化、setter 一起保留 |
+| `crates/pa-daemon/src/agent_engine/turn/model.rs` | 子代理停滞通知挂在回合 settle 之前（`is_empty_reply` 且 `!owes_answer`） | 对齐上游的 `settle` / `incomplete_reply` 结构后重新插入：上游的判定只管用户回合，注入消息的沉默仍要自己通知父代理 |
 | `crates/pa-ai/src/utils_inner/http.rs` | 流式空闲超时包在 `next_text/next_bytes` | 上游若重构 stream 读取，超时逻辑要跟着搬到新的底层读取函数 |
 
 rebase 期间不要用 `git rebase -i` 手工压缩历史；补丁保持独立提交，便于逐项
@@ -112,8 +112,8 @@ rebase 期间不要用 `git rebase -i` 手工压缩历史；补丁保持独立�
 
 | 改动领域 | 命令 |
 | --- | --- |
-| turnHook / stopHook / retry_nudge | `cargo test -p pa-core --lib turn_hook`，`stop_hook`、`retry_nudge` 同样逐个跑（`cargo test` 只接受一个 TESTNAME） |
-| 空回复重试（daemon 真实 HTTP/SSE） | `cargo test -p pa-daemon empty_reply --lib` |
+| turnHook / stopHook | `cargo test -p pa-core --lib turn_hook`，`stop_hook` 同样逐个跑（`cargo test` 只接受一个 TESTNAME） |
+| 子代理停滞通知（faux 引擎） | `cargo test -p pa-daemon --lib empty_reply`；同一 crate 的 `incomplete_reply` 是上游的重试，一起跑 |
 | Authorization 去重 | `cargo test -p pa-ai --lib authorization` |
 | CLI 命令 | `cargo test -p pa-cli --lib`（端口类失败可能是环境性，见下） |
 | 全量回归对照 | 见下方「基线对照」 |
@@ -412,12 +412,13 @@ disabled: …`（`mod.rs:203-206`）然后照常返回。
 - 测试用假 provider 时，`openai-completions` 必须返回 SSE（`stream:true`），
   否则 CLI 报 `Provider dropped the response stream`。
 - `-p` 打印模式走 pa-core 的 SessionEngine，不经过 daemon 的
-  `agent_engine/turn/model.rs`；依赖该路径的修复（如空回复重试）对 `-p`
+  `agent_engine/turn/model.rs`；依赖该路径的修复（如子代理停滞通知）对 `-p`
   不生效。
 
 ## 8. 已知限制
 
-- 空回复自动重试仅覆盖 daemon/TUI 路径；`-p` 模式仍可能静默结束。
+- 空回复的判定与重试在上游的 daemon/TUI turn 路径里（`incomplete_reply`）；`-p` 模式
+  不经过它，仍可能以空回合静默结束。
 - 自定义主题从 `<agent_dir>/themes/<name>.json` 加载，仅支持
   `prime/dark/light` 三个内置名之外的 JSON 主题文件。
 - `clean-kernel-state` 只清理 `kernel-state.*` 文件，不删除会话与目录结构。
