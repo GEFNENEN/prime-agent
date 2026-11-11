@@ -79,6 +79,7 @@ fn manager_with_remote(agent_dir: PathBuf, remote: Vec<McpServiceEntry>) -> McpM
             })
         })),
         probe_override: None,
+        get_default_call_timeout_ms: None,
     })
 }
 
@@ -364,6 +365,7 @@ fn pinned_hint_stays_silent_without_a_snapshot() {
         get_catalog_sources: None,
         remote_source: Some(Box::new(|| None)),
         probe_override: None,
+        get_default_call_timeout_ms: None,
     });
     {
         let mut store = manager.connection_store.lock().unwrap();
@@ -478,6 +480,7 @@ async fn paste_flow_installs_a_bearer_token_service_end_to_end() {
             })
         })),
         probe_override: Some(probe_for_inputs),
+        get_default_call_timeout_ms: None,
     })));
     let views = {
         let manager = std::sync::Arc::clone(&manager);
@@ -655,6 +658,7 @@ fn api_key_credential_views_read_the_shared_store() {
         get_catalog_sources: None,
         remote_source: None,
         probe_override: None,
+        get_default_call_timeout_ms: None,
     });
     manager.refresh();
     // The web-search credential's row renders, honestly unconfigured.
@@ -732,6 +736,7 @@ fn api_key_credential_views_see_a_cross_instance_write_after_the_reload() {
         get_catalog_sources: None,
         remote_source: None,
         probe_override: None,
+        get_default_call_timeout_ms: None,
     });
     manager.refresh();
     assert!(

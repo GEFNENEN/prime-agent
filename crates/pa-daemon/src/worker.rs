@@ -746,6 +746,7 @@ impl Worker {
             get_catalog_sources: None,
             remote_source: None,
             probe_override: None,
+            get_default_call_timeout_ms: None,
         });
         let navigation = crate::session_navigation::SessionNavigation::new(
             std::sync::Arc::clone(&engine),

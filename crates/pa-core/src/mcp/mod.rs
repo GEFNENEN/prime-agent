@@ -276,6 +276,9 @@ pub struct McpManagerOptions {
     /// Declared local service-catalog sources (settings
     /// `mcpCatalogSources`, ~-relative allowed); re-read on refresh.
     pub get_catalog_sources: Option<Box<dyn Fn() -> Vec<String> + Send + Sync>>,
+    /// Reads the settings `mcpCallTimeoutMs` default; re-read on refresh, like
+    /// `get_user_servers`. `None` keeps the kernel's built-in 60 s.
+    pub get_default_call_timeout_ms: Option<Box<dyn Fn() -> Option<u64> + Send + Sync>>,
     /// The remote plugins-catalog snapshot source; defaults to the disk
     /// cache then the packaged bundle. Never fetches (the fetch lane writes).
     pub remote_source: Option<manager_catalog::RemoteCatalogSourceFn>,
@@ -298,6 +301,11 @@ pub struct McpManager {
     get_catalog_sources: Option<Box<dyn Fn() -> Vec<String> + Send + Sync>>,
     remote_source: Option<manager_catalog::RemoteCatalogSourceFn>,
     probe_override: Option<probe::McpEndpointProbe>,
+    /// Reads settings `mcpCallTimeoutMs`; called on every integration resolve.
+    get_default_call_timeout_ms: Option<Box<dyn Fn() -> Option<u64> + Send + Sync>>,
+    /// The resolved default, served by `mcp.config` for server configs with no
+    /// `callTimeoutMs` of their own (ACP-injected servers never carry one).
+    default_call_timeout_ms: Option<u64>,
     usage_report: Option<McpUsageReporter>,
     integrations: HashMap<String, ResolvedIntegration>,
     /// The resolved service catalog (the SAME resolution feeds integrations
@@ -358,6 +366,8 @@ impl McpManager {
             get_catalog_sources: options.get_catalog_sources,
             remote_source,
             probe_override: options.probe_override,
+            get_default_call_timeout_ms: options.get_default_call_timeout_ms,
+            default_call_timeout_ms: None,
             usage_report: None,
             integrations: HashMap::new(),
             service_catalog: crate::mcp::service_catalog::McpCatalogResolution::default(),
@@ -416,6 +426,11 @@ impl McpManager {
     }
 
     fn resolve_integrations(&mut self) {
+        self.default_call_timeout_ms = self
+            .get_default_call_timeout_ms
+            .as_ref()
+            .and_then(|get| get())
+            .filter(|ms| *ms > 0);
         self.resolve_integrations_over_catalog();
     }
 
@@ -568,6 +583,7 @@ impl McpManager {
             get_catalog_sources: None,
             remote_source: None,
             probe_override: None,
+            get_default_call_timeout_ms: None,
         });
         (
             manager.get_disabled_builtin_skill_overrides(),
@@ -602,6 +618,18 @@ impl McpManager {
         manager: &Arc<std::sync::Mutex<Self>>,
         handlers: &mut HostRequestHandlers,
     ) {
+        /// Give every served config the session's `mcpCallTimeoutMs` default
+        /// when it carries no `callTimeoutMs` of its own.
+        fn with_default_call_timeout(mut config: Value, default_ms: Option<u64>) -> Value {
+            let Some(ms) = default_ms else {
+                return config;
+            };
+            if let Value::Object(map) = &mut config {
+                map.entry("callTimeoutMs").or_insert_with(|| json!(ms));
+            }
+            config
+        }
+
         /// The default when absent, a positive integer check, then a clamp to the maximum.
         fn bounded_limit(
             value: Option<&Value>,
@@ -699,45 +727,62 @@ impl McpManager {
                         return Err(anyhow::anyhow!("mcp.config requires a server"));
                     }
                     let acp = acp_servers.lock().unwrap().get(&server).cloned();
-                    if let Some(acp) = acp {
+                    // The resolved default travels with the live manager, so a
+                    // settings reload (which refreshes integrations) reaches
+                    // every later request without rebuilding the handlers.
+                    let (integration, default_call_timeout) = {
+                        let manager = manager.lock().unwrap();
+                        let integration = if acp.is_some() {
+                            None
+                        } else {
+                            manager.integrations.get(&server).cloned()
+                        };
+                        (integration, manager.default_call_timeout_ms)
+                    };
+                    // Every served config funnels through one exit, so no branch
+                    // can skip the session default.
+                    let (config, reports_usage) = if let Some(acp) = acp {
                         let mut config = serde_json::to_value(acp).unwrap_or(Value::Null);
                         if let Value::Object(map) = &mut config {
                             map.insert("credentialSource".to_string(), json!("acp"));
                         }
-                        if let Some(report) = &usage_config {
-                            report("config", &server);
-                        }
-                        return Ok(config);
-                    }
-                    let integration = {
-                        let manager = manager.lock().unwrap();
-                        manager.integrations.get(&server).cloned()
-                    };
-                    let Some(integration) = integration else {
-                        return Ok(json!({}));
-                    };
-                    if !integration.user_declared {
-                        // A catalog service: the kernel dispatches it through disabled/blocked
-                        // entries never dispatch.
-                        if integration.blocked_reason.is_some() {
+                        (config, true)
+                    } else {
+                        let Some(integration) = integration else {
                             return Ok(json!({}));
-                        }
-                        let mut config = serde_json::to_value(&integration.config)
-                            .map_err(anyhow::Error::new)?;
-                        if integration.static_token_eligible {
-                            if let Value::Object(map) = &mut config {
-                                map.insert("credentialSource".to_string(), json!("static-token"));
+                        };
+                        if integration.user_declared {
+                            // A bundled catalog service owns its name; a
+                            // shadowing user entry is dead by design.
+                            if get_catalog_entry(&server).is_some() {
+                                return Ok(json!({}));
                             }
+                            (
+                                serde_json::to_value(&integration.config)
+                                    .map_err(anyhow::Error::new)?,
+                                false,
+                            )
+                        } else if integration.blocked_reason.is_some() {
+                            // A blocked catalog entry never dispatches.
+                            return Ok(json!({}));
+                        } else {
+                            let mut config = serde_json::to_value(&integration.config)
+                                .map_err(anyhow::Error::new)?;
+                            if integration.static_token_eligible {
+                                if let Value::Object(map) = &mut config {
+                                    map.insert(
+                                        "credentialSource".to_string(),
+                                        json!("static-token"),
+                                    );
+                                }
+                            }
+                            (config, true)
                         }
-                        if let Some(report) = &usage_config {
-                            report("config", &server);
-                        }
-                        return Ok(config);
+                    };
+                    if let Some(report) = usage_config.as_ref().filter(|_| reports_usage) {
+                        report("config", &server);
                     }
-                    if get_catalog_entry(&server).is_some() {
-                        return Ok(json!({}));
-                    }
-                    serde_json::to_value(&integration.config).map_err(anyhow::Error::new)
+                    Ok(with_default_call_timeout(config, default_call_timeout))
                 })
             }),
         );
@@ -1042,6 +1087,7 @@ mod tests {
             get_catalog_sources: None,
             remote_source: None,
             probe_override: None,
+            get_default_call_timeout_ms: None,
         })
     }
 
@@ -1314,6 +1360,94 @@ mod tests {
             .unwrap_err();
         assert_eq!(error.to_string(), "mcp.config requires a server");
         assert!(handlers.get("mcp.begin_login").is_none());
+    }
+
+    #[tokio::test]
+    async fn config_host_handler_serves_the_default_call_timeout() {
+        use std::sync::atomic::{AtomicU64, Ordering};
+
+        let setting = std::sync::Arc::new(AtomicU64::new(0));
+        let live = std::sync::Arc::clone(&setting);
+        let manager =
+            std::sync::Arc::new(std::sync::Mutex::new(McpManager::new(McpManagerOptions {
+                auth_storage: test_auth_storage(),
+                get_user_servers: Box::new(move || Some(HashMap::new())),
+                begin_login: None,
+                agent_dir: None,
+                get_catalog_sources: None,
+                get_default_call_timeout_ms: Some(Box::new(move || {
+                    Some(live.load(Ordering::Relaxed))
+                })),
+                remote_source: None,
+                probe_override: None,
+            })));
+        manager
+            .lock()
+            .unwrap()
+            .replace_acp_servers(
+                &[AcpMcpServerConfig::Stdio {
+                    name: "session-tool".to_string(),
+                    command: "run".to_string(),
+                    args: vec![],
+                    cwd: "/tmp".to_string(),
+                    env: HashMap::new(),
+                }],
+                "client-a",
+            )
+            .unwrap();
+        let mut handlers = HostRequestHandlers::default();
+        McpManager::register_host_handlers(&manager, &mut handlers);
+        let config = handlers.get("mcp.config").unwrap().clone();
+        let read = |config: &crate::kernel::shared::HostHandlerFn| {
+            config(crate::kernel::shared::HostRequestPayload {
+                data: json!({ "server": "session-tool" }),
+            })
+        };
+        // Unset: the ACP config carries no timeout of its own.
+        let unset = read(&config).await.unwrap();
+        assert!(unset.get("callTimeoutMs").is_none());
+
+        // A settings reload reaches the next request without re-registering.
+        setting.store(660_000, Ordering::Relaxed);
+        manager.lock().unwrap().refresh();
+        let inherited = read(&config).await.unwrap();
+        assert_eq!(inherited["callTimeoutMs"], json!(660_000));
+
+        // `0` is not a timeout: the setting stays unset.
+        setting.store(0, Ordering::Relaxed);
+        manager.lock().unwrap().refresh();
+        let zero = read(&config).await.unwrap();
+        assert!(zero.get("callTimeoutMs").is_none());
+
+        // A server's own callTimeoutMs wins over the default.
+        let mut own = http_config("https://example.test/mcp", None, None);
+        if let McpServerConfig::Http {
+            call_timeout_ms, ..
+        } = &mut own
+        {
+            *call_timeout_ms = Some(30_000);
+        }
+        let user_servers = HashMap::from([("own-timeout".to_string(), own)]);
+        let manager =
+            std::sync::Arc::new(std::sync::Mutex::new(McpManager::new(McpManagerOptions {
+                auth_storage: test_auth_storage(),
+                get_user_servers: Box::new(move || Some(user_servers.clone())),
+                begin_login: None,
+                agent_dir: None,
+                get_catalog_sources: None,
+                get_default_call_timeout_ms: Some(Box::new(|| Some(660_000))),
+                remote_source: None,
+                probe_override: None,
+            })));
+        let mut handlers = HostRequestHandlers::default();
+        McpManager::register_host_handlers(&manager, &mut handlers);
+        let config = handlers.get("mcp.config").unwrap().clone();
+        let own = config(crate::kernel::shared::HostRequestPayload {
+            data: json!({ "server": "own-timeout" }),
+        })
+        .await
+        .unwrap();
+        assert_eq!(own["callTimeoutMs"], json!(30_000));
     }
 
     #[tokio::test]

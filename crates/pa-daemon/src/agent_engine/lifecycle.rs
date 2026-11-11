@@ -96,6 +96,17 @@ impl AgentSessionEngine {
             )
         });
         let oauth_user_servers = std::sync::Arc::clone(&user_servers);
+        // The default per-call MCP limit (`mcpCallTimeoutMs`), re-read on every
+        // resolve like `mcpServers`; MCP settings are user/global only.
+        let timeout_cwd = std::sync::Arc::clone(&cwd);
+        let timeout_agent_dir = agent_dir.clone();
+        let get_default_call_timeout_ms: Box<dyn Fn() -> Option<u64> + Send + Sync> =
+            Box::new(move || {
+                let cwd = timeout_cwd.read().expect("engine cwd lock").clone();
+                pa_core::settings::SettingsManager::create(&cwd, &timeout_agent_dir)
+                    .global_settings()
+                    .mcp_call_timeout_ms
+            });
         let mcp = pa_core::mcp::McpManager::new(pa_core::mcp::McpManagerOptions {
             auth_storage: pa_core::auth::AuthStorage::create_with_oauth(
                 &agent_dir,
@@ -115,6 +126,7 @@ impl AgentSessionEngine {
                     .clone()
                     .unwrap_or_default()
             })),
+            get_default_call_timeout_ms: Some(get_default_call_timeout_ms),
             remote_source: None,
             probe_override: None,
         });

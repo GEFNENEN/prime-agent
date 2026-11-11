@@ -65,6 +65,7 @@ const KNOWN_FIELDS: &[&str] = &[
     "sessionDir",
     "requestTiming",
     "pythonCellTimeoutMs",
+    "mcpCallTimeoutMs",
     "turnHook",
     "stopHook",
     "updateGuard",
@@ -161,6 +162,12 @@ mod tests {
         let settings = from_value_lenient(&value);
         assert_eq!(settings.theme.as_deref(), Some("prime"));
         assert_eq!(settings.rlm_max_depth, Some(4));
+    }
+
+    #[test]
+    fn mcp_call_timeout_parses_from_the_camel_case_key() {
+        let settings = from_value_lenient(&serde_json::json!({ "mcpCallTimeoutMs": 660_000 }));
+        assert_eq!(settings.mcp_call_timeout_ms, Some(660_000));
     }
 
     #[test]
