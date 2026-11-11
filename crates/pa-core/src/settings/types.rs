@@ -448,6 +448,12 @@ pub struct Settings {
     /// compiled built-ins; first source wins per id, and no bundled id can be shadowed.
     /// Read from global settings only, like executable MCP server configuration.
     pub mcp_catalog_sources: Option<Vec<String>>,
+    /// Default per-call limit for MCP tools, in milliseconds. `mcp.config`
+    /// serves it to every server config that carries no `callTimeoutMs` of its
+    /// own: user-declared, catalog, and session-injected (ACP) servers, which
+    /// cannot declare one. Unset keeps the kernel's built-in 60 s.
+    /// Read from global settings only, like executable MCP server configuration.
+    pub mcp_call_timeout_ms: Option<u64>,
     pub packages: Option<Vec<serde_json::Value>>,
     pub skills: Option<Vec<String>>,
     pub prompts: Option<Vec<String>>,
