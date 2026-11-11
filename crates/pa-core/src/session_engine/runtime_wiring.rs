@@ -376,6 +376,12 @@ impl IpythonKernelProvisioner for KernelProvisioner {
             this.kill();
         })
     }
+
+    fn cell_timeout_budget_ms(&self) -> Option<u64> {
+        // A zero setting is the explicit disable: no budget to raise a
+        // per-call `timeout` to.
+        self.cell_timeout_ms().filter(|ms| *ms > 0)
+    }
 }
 
 /// Adapts the kernel manager to the ipython tool's executor contract.
@@ -592,5 +598,40 @@ mod tests {
         // A zero setting is the explicit disable: it must reach the
         // executor as an armed zero budget, not fall back to a default.
         assert_eq!(arm_cell_timeout_ms(false, 0), Some(0));
+    }
+
+    #[test]
+    fn the_tool_reaches_the_session_budget_through_the_provisioner() {
+        let provisioner = |cell_timeout_ms| crate::tools::ipython::IpythonToolOptions {
+            provisioner: Arc::new(KernelProvisioner::new(
+                "/tmp",
+                IpythonKernelProvisionerOptions {
+                    cell_timeout_ms,
+                    ..Default::default()
+                },
+            )),
+            ui: None,
+            on_late_sent_agent_message: None,
+        };
+        // The budget the user authorized reaches the model's own `timeout`
+        // ceiling, and the schema advertises that same number, so an armed
+        // setting cannot silently shrink to the built-in 180 s.
+        let options = provisioner(Some(700_000));
+        assert_eq!(options.provisioner.cell_timeout_budget_ms(), Some(700_000));
+        let definition = crate::tools::ipython::create_ipython_tool_definition("/tmp", options);
+        assert_eq!(
+            definition.parameters["properties"]["timeout"]["description"],
+            Value::String(
+                "Seconds before this cell is interrupted (default 60 unless the user configured \
+otherwise, max 700)."
+                    .to_string()
+            )
+        );
+        // `0` is the explicit disable: no budget to raise a ceiling to.
+        assert_eq!(
+            provisioner(Some(0)).provisioner.cell_timeout_budget_ms(),
+            None
+        );
+        assert_eq!(provisioner(None).provisioner.cell_timeout_budget_ms(), None);
     }
 }
