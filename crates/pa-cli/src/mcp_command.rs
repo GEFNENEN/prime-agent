@@ -71,7 +71,10 @@ impl McpServerConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct EnvRef {
-    pub env: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub env: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub value: Option<String>,
 }
 
 fn settings_path() -> PathBuf {
@@ -282,12 +285,13 @@ fn parse_mcp_add_args(args: &[String]) -> Result<(&str, McpServerConfig, bool)> 
     let mut force = false;
     let mut cwd: Option<String> = None;
     let mut env: BTreeMap<String, EnvRef> = BTreeMap::new();
+    let mut saw_env_value = false;
     let mut seen_options: Vec<&str> = Vec::new();
 
     let mut index = 0;
     while index < option_args.len() {
         let option = option_args[index].as_str();
-        if option != "--env" && seen_options.contains(&option) {
+        if option != "--env" && option != "--env-value" && seen_options.contains(&option) {
             bail!("Duplicate MCP add option: {option}");
         }
         seen_options.push(option);
@@ -304,6 +308,7 @@ fn parse_mcp_add_args(args: &[String]) -> Result<(&str, McpServerConfig, bool)> 
             && option != "--bearer-token-env-var"
             && option != "--cwd"
             && option != "--env"
+            && option != "--env-value"
         {
             bail!("Unknown MCP add option: {option}");
         }
@@ -316,7 +321,7 @@ fn parse_mcp_add_args(args: &[String]) -> Result<(&str, McpServerConfig, bool)> 
                 bearer_token_env_var = Some(validate_env_name(value, option)?);
             }
             "--cwd" => cwd = Some(value.clone()),
-            _ => {
+            "--env" => {
                 let equals = value.find('=').filter(|&e| e > 0 && e < value.len() - 1);
                 let Some(equals) = equals else {
                     bail!("--env must use CHILD=SOURCE, where both sides are environment variable names.");
@@ -329,10 +334,32 @@ fn parse_mcp_add_args(args: &[String]) -> Result<(&str, McpServerConfig, bool)> 
                 env.insert(
                     child.clone(),
                     EnvRef {
-                        env: source.clone(),
+                        env: Some(source.clone()),
+                        value: None,
                     },
                 );
             }
+            "--env-value" => {
+                saw_env_value = true;
+                let Some((child, literal)) = value.split_once('=') else {
+                    bail!("--env-value must use CHILD=VALUE, where CHILD is an environment variable name.");
+                };
+                if literal.is_empty() {
+                    bail!("--env-value requires a non-empty value.");
+                }
+                let child = validate_env_name(child, "--env-value child")?;
+                if env.contains_key(child.as_str()) {
+                    bail!("Duplicate child environment variable: {child}");
+                }
+                env.insert(
+                    child.clone(),
+                    EnvRef {
+                        env: None,
+                        value: Some(literal.to_string()),
+                    },
+                );
+            }
+            _ => bail!("Unknown MCP add option: {option}"),
         }
         index += 2;
     }
@@ -358,7 +385,12 @@ fn parse_mcp_add_args(args: &[String]) -> Result<(&str, McpServerConfig, bool)> 
     }
 
     if cwd.is_some() || !env.is_empty() {
-        bail!("--cwd and --env require a stdio command after --.");
+        let options = if saw_env_value {
+            "--cwd, --env, and --env-value require a stdio command after --."
+        } else {
+            "--cwd and --env require a stdio command after --."
+        };
+        bail!("{options}");
     }
     let Some(url) = url else {
         bail!("Use --url <url> for HTTP or -- <command> [args...] for stdio.");
@@ -499,6 +531,62 @@ mod tests {
             engine,
             pa_core::mcp::McpServerConfig::Http { bearer_token_env_var: Some(ref var), .. } if var == "MY_TOKEN"
         ));
+    }
+
+    #[test]
+    fn mcp_add_writes_a_literal_env_value() {
+        let args: Vec<String> = [
+            "x",
+            "--env-value",
+            "HINDSIGHT_MCP_HARNESS=dcode",
+            "--",
+            "node",
+            "server.js",
+        ]
+        .map(String::from)
+        .to_vec();
+        let (_, config, _) = parse_mcp_add_args(&args).unwrap();
+        let written = serde_json::to_value(&config).unwrap();
+        assert_eq!(
+            written,
+            serde_json::json!({
+                "type": "stdio",
+                "command": "node",
+                "args": ["server.js"],
+                "env": {
+                    "HINDSIGHT_MCP_HARNESS": {"value": "dcode"}
+                }
+            })
+        );
+        let engine: pa_core::mcp::McpServerConfig = serde_json::from_value(written).unwrap();
+        let pa_core::mcp::McpServerConfig::Stdio { env: Some(env), .. } = engine else {
+            panic!("expected a stdio server");
+        };
+        assert_eq!(env["HINDSIGHT_MCP_HARNESS"].value.as_deref(), Some("dcode"));
+        assert!(env["HINDSIGHT_MCP_HARNESS"].env.is_none());
+    }
+
+    #[test]
+    fn a_literal_env_value_names_itself_when_the_stdio_command_is_missing() {
+        let args: Vec<String> = [
+            "x",
+            "--env-value",
+            "CHILD=dcode",
+            "--url",
+            "https://e.com/mcp",
+        ]
+        .map(String::from)
+        .to_vec();
+        let error = parse_mcp_add_args(&args).unwrap_err().to_string();
+        assert_eq!(
+            error,
+            "--cwd, --env, and --env-value require a stdio command after --."
+        );
+        let args: Vec<String> = ["x", "--env", "CHILD=SOURCE", "--url", "https://e.com/mcp"]
+            .map(String::from)
+            .to_vec();
+        let error = parse_mcp_add_args(&args).unwrap_err().to_string();
+        assert_eq!(error, "--cwd and --env require a stdio command after --.");
     }
 
     #[test]
