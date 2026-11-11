@@ -191,7 +191,7 @@ restored after its snapshot was removed starts with an empty kernel namespace.",
         "mcp add <name> --url <url> [--bearer-token-env-var <env>|--oauth] [--force]",
         "Add an HTTP or stdio MCP server",
     )
-    .description("For stdio, use: mcp add <name> [--cwd <dir>] [--env CHILD=SOURCE] -- <command> [args...]"),
+    .description("For stdio, use: mcp add <name> [--cwd <dir>] [--env CHILD=SOURCE] [--env-value CHILD=VALUE] -- <command> [args...]"),
     CommandSpec::new(&["mcp", "list"], "mcp list", "List user MCP servers"),
     CommandSpec::new(&["mcp", "get"], "mcp get <name>", "Show a user MCP server"),
     CommandSpec::new(&["mcp", "remove"], "mcp remove <name>", "Remove a user MCP server"),

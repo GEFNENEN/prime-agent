@@ -994,12 +994,24 @@ def _stdio_env(config: dict[str, Any]) -> dict[str, str]:
         env.update(raw)
         return env
     for key, reference in raw.items():
-        if not isinstance(key, str) or not isinstance(reference, dict) or set(reference) != {"env"}:
-            raise ValueError("MCP stdio env values must use {\"env\": \"NAME\"} references")
-        source = reference["env"]
-        if not isinstance(source, str) or source not in os.environ:
-            raise ValueError(f"MCP stdio environment reference for '{key}' is unavailable")
-        env[key] = os.environ[source]
+        if not isinstance(key, str) or not isinstance(reference, dict):
+            raise ValueError(
+                'MCP stdio env values must use {"env": "NAME"} or {"value": "..."} entries'
+            )
+        if set(reference) == {"env"}:
+            source = reference["env"]
+            if not isinstance(source, str) or source not in os.environ:
+                raise ValueError(f"MCP stdio environment reference for '{key}' is unavailable")
+            env[key] = os.environ[source]
+        elif set(reference) == {"value"}:
+            literal = reference["value"]
+            if not isinstance(literal, str):
+                raise ValueError(f"MCP stdio literal environment for '{key}' must be a string")
+            env[key] = literal
+        else:
+            raise ValueError(
+                'MCP stdio env values must use {"env": "NAME"} or {"value": "..."} entries'
+            )
     return env
 
 
