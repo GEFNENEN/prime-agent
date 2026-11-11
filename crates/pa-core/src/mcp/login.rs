@@ -346,6 +346,7 @@ mod tests {
             get_catalog_sources: None,
             remote_source: None,
             probe_override: None,
+            get_default_call_timeout_ms: None,
         });
         Arc::new(Mutex::new(manager))
     }

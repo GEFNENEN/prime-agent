@@ -59,7 +59,7 @@ print(len(args["requests"]), hashlib.sha256(src.read_bytes()).hexdigest()[:12])
 
 - Build or load arguments with code (`json.load`, a dataframe, a generator). Never paste a payload into a cell or ask the model to retype one.
 - Write results to a file and check them in Python (counts, hashes, a readback compared field by field). Print the summary, not the payload.
-- Each call times out after 60 s by default. For large writes, raise `callTimeoutMs` in that server's `mcpServers` entry.
+- Each call times out after 60 s by default. For large writes, raise `callTimeoutMs` in that server's `mcpServers` entry; a global `mcpCallTimeoutMs` in settings seeds servers that set none of their own.
 
 ## Errors and permissions
 

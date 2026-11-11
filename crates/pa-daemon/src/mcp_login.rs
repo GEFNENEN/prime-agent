@@ -251,6 +251,7 @@ mod tests {
             get_catalog_sources: None,
             remote_source: None,
             probe_override: None,
+            get_default_call_timeout_ms: None,
         });
         let manager = Arc::new(std::sync::Mutex::new(manager));
         // Gating snapshots take the auth-store's blocking lock (the
@@ -400,6 +401,7 @@ mod tests {
             get_catalog_sources: None,
             remote_source: None,
             probe_override: None,
+            get_default_call_timeout_ms: None,
         });
         let manager = Arc::new(std::sync::Mutex::new(manager));
         wire_worker_mcp_login(
