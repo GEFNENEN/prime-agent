@@ -175,6 +175,20 @@ pub trait IpythonKernelProvisioner: Send + Sync {
     fn take_kernel_restart_note(&self) -> bool {
         false
     }
+
+    /// The session's own cell time limit in milliseconds, when it arms one
+    /// (`pythonCellTimeoutMs`; `None`: no session budget applies). The tool
+    /// raises a cell's `timeout` ceiling to it, so a per-call request can reach
+    /// the budget the user authorized but never exceed it. Implementations
+    /// return the limit they arm their cells with; the default reports no
+    /// budget, keeping the tool's built-in ceiling.
+    ///
+    /// This is the ceiling only: whether the kernel arms anything at all is the
+    /// provisioner's own decision, so a session that disarms its limit (`0`) may
+    /// still drop a per-call `timeout` while this reports `None`.
+    fn cell_timeout_budget_ms(&self) -> Option<u64> {
+        None
+    }
 }
 
 pub fn kernel_restart_notice() -> &'static str {
@@ -378,7 +392,7 @@ pub struct IpythonToolOptions {
     pub on_late_sent_agent_message: Option<LateSentAgentMessageHandler>,
 }
 
-pub fn ipython_tool_schema() -> serde_json::Value {
+pub fn ipython_tool_schema(timeout_ceiling_s: u64) -> serde_json::Value {
     json!({
         "type": "object",
         "required": ["code"],
@@ -390,7 +404,7 @@ pub fn ipython_tool_schema() -> serde_json::Value {
             "timeout": {
                 "type": "integer",
                 "description": format!(
-                    "Seconds this call waits before auto-backgrounding a still-running cell (default {} unless the user configured otherwise, max {PYTHON_REPL_TIMEOUT_MAX_S}). The cell keeps running and its completion notice arrives in the inbox, or as a full session row when it carries rich output.",
+                    "Seconds this call waits before auto-backgrounding a still-running cell (default {} unless the user configured otherwise, max {timeout_ceiling_s}). The cell keeps running and its completion notice arrives in the inbox, or as a full session row when it carries rich output.",
                     DEFAULT_PYTHON_CELL_TIMEOUT_MS / 1000
                 )
             }
@@ -398,14 +412,31 @@ pub fn ipython_tool_schema() -> serde_json::Value {
     })
 }
 
-/// The largest per-call `timeout` the model may pass, in seconds.
+/// The largest per-call `timeout` the model may pass when the session arms no
+/// larger limit, in seconds.
 pub const PYTHON_REPL_TIMEOUT_MAX_S: u64 = 180;
 
+/// The ceiling a cell's `timeout` is clamped to, in milliseconds: the session's
+/// own cell limit (`pythonCellTimeoutMs`) when it is larger than the built-in
+/// one. The model can reach the budget the user authorized and never exceed it.
+fn timeout_ceiling_ms(session_budget_ms: Option<u64>) -> u64 {
+    let builtin_ceiling_ms = PYTHON_REPL_TIMEOUT_MAX_S * 1000;
+    session_budget_ms
+        .filter(|budget_ms| *budget_ms > 0)
+        .map_or(builtin_ceiling_ms, |budget_ms| {
+            budget_ms.max(builtin_ceiling_ms)
+        })
+}
+
 /// The model's `timeout` argument as a cell limit in milliseconds, clamped to
-/// 1..=[`PYTHON_REPL_TIMEOUT_MAX_S`] seconds.
-fn timeout_arg_ms(params: &serde_json::Value) -> Option<u64> {
+/// 1 s..=[`timeout_ceiling_ms`].
+fn timeout_arg_ms(params: &serde_json::Value, session_budget_ms: Option<u64>) -> Option<u64> {
     let seconds = params.get("timeout")?.as_f64()?;
-    Some((seconds as u64).clamp(1, PYTHON_REPL_TIMEOUT_MAX_S) * 1000)
+    Some(
+        (seconds as u64)
+            .saturating_mul(1000)
+            .clamp(1000, timeout_ceiling_ms(session_budget_ms)),
+    )
 }
 
 pub fn ipython_tool_description() -> &'static str {
@@ -529,6 +560,10 @@ pub async fn execute_ipython(
 #[must_use]
 pub fn create_ipython_tool_definition(_cwd: &str, options: IpythonToolOptions) -> ToolDefinition {
     let options = Arc::new(options);
+    // The ceiling is fixed for the session's life (the kernel provisioner
+    // carries the session's own cell limit), so the schema advertises the same
+    // bound the executor clamps to.
+    let timeout_ceiling_s = timeout_ceiling_ms(options.provisioner.cell_timeout_budget_ms()) / 1000;
     let execute: crate::tools::tool_definition::ExecuteFn = {
         let options = options;
         Arc::new(move |tool_call_id, params, signal, on_update| {
@@ -549,7 +584,7 @@ pub fn create_ipython_tool_definition(_cwd: &str, options: IpythonToolOptions) -
                 execute_ipython(
                     &options,
                     &code,
-                    timeout_arg_ms(&params),
+                    timeout_arg_ms(&params, options.provisioner.cell_timeout_budget_ms()),
                     signal,
                     on_update,
                     on_late_sent_agent_message,
@@ -567,7 +602,7 @@ pub fn create_ipython_tool_definition(_cwd: &str, options: IpythonToolOptions) -
                 .to_string(),
         // The kernel is single-threaded; calls must not run in parallel.
         execution_mode: Some(ExecutionMode::Sequential),
-        parameters: ipython_tool_schema(),
+        parameters: ipython_tool_schema(timeout_ceiling_s),
         prepare_arguments: None,
         execute,
     }
@@ -579,11 +614,11 @@ mod tests {
 
     #[test]
     fn timeout_arg_is_clamped_to_the_allowed_range() {
-        assert_eq!(timeout_arg_ms(&json!({ "code": "" })), None);
-        assert_eq!(timeout_arg_ms(&json!({ "timeout": 5 })), Some(5_000));
-        assert_eq!(timeout_arg_ms(&json!({ "timeout": 0 })), Some(1_000));
+        assert_eq!(timeout_arg_ms(&json!({ "code": "" }), None), None);
+        assert_eq!(timeout_arg_ms(&json!({ "timeout": 5 }), None), Some(5_000));
+        assert_eq!(timeout_arg_ms(&json!({ "timeout": 0 }), None), Some(1_000));
         assert_eq!(
-            timeout_arg_ms(&json!({ "timeout": 3600 })),
+            timeout_arg_ms(&json!({ "timeout": 3600 }), None),
             Some(PYTHON_REPL_TIMEOUT_MAX_S * 1000)
         );
     }
@@ -611,6 +646,35 @@ mod tests {
                     mime_type: "video/webm".to_string(),
                 },
             ]
+        );
+    }
+
+    #[test]
+    fn timeout_arg_ceiling_follows_a_larger_session_budget() {
+        // A session budget below the built-in ceiling never lowers the model's
+        // own range: 180 s stays requestable.
+        assert_eq!(
+            timeout_arg_ms(&json!({ "timeout": 3600 }), Some(60_000)),
+            Some(PYTHON_REPL_TIMEOUT_MAX_S * 1000)
+        );
+        // A larger authorized budget is what the model may reach, and no more.
+        assert_eq!(
+            timeout_arg_ms(&json!({ "timeout": 700 }), Some(700_000)),
+            Some(700_000)
+        );
+        assert_eq!(
+            timeout_arg_ms(&json!({ "timeout": 900 }), Some(700_000)),
+            Some(700_000)
+        );
+        // `0` is the explicit disable, not a ceiling.
+        assert_eq!(
+            timeout_arg_ms(&json!({ "timeout": 3600 }), Some(0)),
+            Some(PYTHON_REPL_TIMEOUT_MAX_S * 1000)
+        );
+        // A sub-second request stays at the 1 s floor.
+        assert_eq!(
+            timeout_arg_ms(&json!({ "timeout": 0 }), Some(700_000)),
+            Some(1_000)
         );
     }
 
