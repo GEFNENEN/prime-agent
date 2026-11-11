@@ -386,12 +386,6 @@ impl AgentSessionEngine {
                     let model = model.clone();
                     let pending_model_changes = pending_model_changes.clone();
                     async move {
-                        // The nudge slot is attempt-scoped: a retry that was
-                        // queued but never issued (abort, worker shutdown)
-                        // must not leak its nudge into this turn's request.
-                        if let Some(core) = self.session.lock().await.clone() {
-                            core.session.clear_retry_nudge();
-                        }
                         // A retry re-issues the failed turn: the failed
                         // assistant message leaves the loop context first
                         // (TS `messages.slice(0, -1)`), then `continue`.
@@ -399,12 +393,6 @@ impl AgentSessionEngine {
                             drop_trailing_assistant(&agent).await;
                         }
                         let mut admit_prompt = first;
-                        // Automatic retries for a finished turn the user
-                        // cannot act on (no text, no tool call). Without
-                        // them the run ends silently: the providers stop
-                        // cleanly on thinking-only replies. A subagent gets
-                        // one extra attempt (see `empty_reply_retries`).
-                        let mut empty_reply_retries_left = 1;
                         loop {
                             let assistant = match self
                                 .run_turn_once(
@@ -426,47 +414,16 @@ impl AgentSessionEngine {
                                 Err(error) => return Err(error),
                             };
                             if is_empty_reply(&assistant) {
-                                if empty_reply_retries_left > 0 {
-                                    empty_reply_retries_left -= 1;
-                                    // An empty reply is usually the provider
-                                    // wobbling, not the request: re-issuing
-                                    // instantly lands on the same wobble and
-                                    // burns the single retry. Wait a fixed
-                                    // pause first, abort-aware so a cancelled
-                                    // run does not sit here.
-                                    let deadline = tokio::time::Instant::now()
-                                        + std::time::Duration::from_millis(
-                                            EMPTY_REPLY_RETRY_DELAY_MS,
-                                        );
-                                    loop {
-                                        if aborted() {
-                                            return Ok(aborted_message(&model));
-                                        }
-                                        if tokio::time::Instant::now() >= deadline {
-                                            break;
-                                        }
-                                        tokio::time::sleep(std::time::Duration::from_millis(50))
-                                            .await;
-                                    }
-                                    // Queue the request-only nudge, drop
-                                    // the empty assistant, and re-issue
-                                    // the same turn without re-admitting
-                                    // the prompt.
-                                    if let Some(core) = self.session.lock().await.clone() {
-                                        core.session.queue_retry_nudge(EMPTY_REPLY_RETRY_NUDGE);
-                                    }
-                                    drop_trailing_assistant(&agent).await;
-                                    admit_prompt = false;
-                                    continue;
-                                }
-                                // Still empty: never end the turn
-                                // silently —— surface a visible warning, and
-                                // for a subagent tell the parent so the run is
-                                // re-tasked instead of idling unseen.
-                                emit(EngineEvent::CustomMessage(empty_reply_warning(
-                                    stalled_run_subagent,
-                                )));
-                                if stalled_run_subagent
+                                // A silent reply to a user prompt settles as a
+                                // retryable failure, so the retry driver
+                                // re-issues it and the caller surfaces the
+                                // error. A reply to an injected message owes no
+                                // answer: silence there ends the run with
+                                // nothing said, and the sender believes the
+                                // child took the work. Tell the parent so it can
+                                // re-task a stalled run.
+                                if !owes_answer
+                                    && stalled_run_subagent
                                     && !self
                                         .stalled_run_announced
                                         .swap(true, std::sync::atomic::Ordering::SeqCst)
@@ -477,9 +434,9 @@ impl AgentSessionEngine {
                                         .unwrap_or_else(std::sync::PoisonError::into_inner)
                                         .clone();
                                     if let Some(notice) = notice {
-                                        // A failed delivery must not silence the
-                                        // child for good: reopen the gate so the
-                                        // next stall can try again.
+                                        // A failed delivery must not silence
+                                        // the child for good: reopen the gate
+                                        // so the next stall can try again.
                                         if notice(EMPTY_REPLY_STALLED_PARENT_NOTICE.to_string())
                                             .await
                                             .is_err()
@@ -489,12 +446,12 @@ impl AgentSessionEngine {
                                         }
                                     }
                                 }
-                                return Ok(assistant);
+                            } else {
+                                // A visible reply means the stall resolved: let
+                                // a later stall announce itself again.
+                                self.stalled_run_announced
+                                    .store(false, std::sync::atomic::Ordering::SeqCst);
                             }
-                            // A visible reply means the stall resolved: let a
-                            // later stall announce itself again.
-                            self.stalled_run_announced
-                                .store(false, std::sync::atomic::Ordering::SeqCst);
                             if !self
                                 .threshold_yielded
                                 .swap(false, std::sync::atomic::Ordering::SeqCst)
@@ -730,20 +687,10 @@ impl AgentSessionEngine {
     }
 }
 
-/// The trailing user nudge the empty reply is retried with. Request-only:
-/// the engine's transform drains it after assembling the request, so it
-/// never enters the persisted history.
-const EMPTY_REPLY_RETRY_NUDGE: &str = "Your previous reply was empty: no user-visible text and no tool calls. Continue the task now - answer the user or call the tools you need. Never reply with an empty message.";
-
-/// The pause before re-issuing an empty turn: an empty reply is usually a
-/// provider wobble, so an immediate retry re-hits it. Fixed rather than
-/// exponential because there is exactly one retry.
-const EMPTY_REPLY_RETRY_DELAY_MS: u64 = 3_000;
-
 /// The message a stalled subagent sends its parent. It is warm and actionable:
 /// the parent re-tasks the child (or takes the work over) instead of waiting
 /// for a reply that will never arrive.
-const EMPTY_REPLY_STALLED_PARENT_NOTICE: &str = "I stopped without producing a reply: the model returned an empty turn (no text, no tool calls) twice in a row, so this run has ended. Nothing in my context was lost - re-task me with the next step and I will continue.";
+const EMPTY_REPLY_STALLED_PARENT_NOTICE: &str = "I stopped without producing a reply: the model returned an empty turn (no text, no tool calls), so this run has ended. Nothing in my context was lost - re-task me with the next step and I will continue.";
 
 /// True when a finished assistant message carries nothing the user can act
 /// on: no non-blank text and no tool call. Thinking-only replies count as
@@ -773,26 +720,6 @@ fn is_empty_content(content: &[pa_agent::types::AssistantContent]) -> bool {
         pa_agent::types::AssistantContent::ToolCall(_) => true,
         pa_agent::types::AssistantContent::Thinking(_) => false,
     })
-}
-
-/// The visible warning emitted when the retried reply is still empty. It
-/// reuses the model-prompt-error row type: the client renders it as a
-/// warning status line instead of ending the turn with no feedback.
-fn empty_reply_warning(stalled_subagent: bool) -> serde_json::Value {
-    let content = if stalled_subagent {
-        "The model returned an empty reply (no text and no tool calls) after an automatic retry. This subagent run stopped and its parent was notified so it can re-task the work."
-    } else {
-        "The model returned an empty reply (no text and no tool calls) after an automatic retry. Nothing was lost - send a message to continue."
-    };
-    let message = pa_types::session::CustomMessage {
-        custom_type: pa_core::prompts::model_prompts::MODEL_PROMPT_ERROR_CUSTOM_TYPE.to_string(),
-        content: pa_types::ai::UserContent::Text(content.to_string()),
-        display: true,
-        details: None,
-        timestamp: crate::util::now_ms(),
-        rest: serde_json::Map::default(),
-    };
-    crate::session_commands::custom_message_value(&message)
 }
 
 #[cfg(test)]
