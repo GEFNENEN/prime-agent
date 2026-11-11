@@ -721,13 +721,6 @@ pub async fn create_session(mut config: SessionEngineConfig) -> anyhow::Result<S
         Some(hook) => hook.wrap_transform(instrumented_transform),
         None => instrumented_transform,
     };
-    // The empty-reply retry nudge: a one-shot slot the next request
-    // transform drains into a trailing user turn. The nudge rides the
-    // request only — never the session history — so the retried turn
-    // leaves no trace and the retry cannot loop on its own injection.
-    let retry_nudge = std::sync::Arc::new(std::sync::Mutex::new(None::<String>));
-    let transform_context =
-        super::retry_nudge::wrap_transform(transform_context, std::sync::Arc::clone(&retry_nudge));
     let get_system_prompt = turn_hook.as_ref().map(|hook| hook.resolver(&system_prompt));
     let agent = Agent::new(AgentOptions {
         // Every request in the session carries this identity: providers key prompt caching
@@ -830,7 +823,6 @@ pub async fn create_session(mut config: SessionEngineConfig) -> anyhow::Result<S
             .store(true, std::sync::atomic::Ordering::SeqCst);
     }
     session.set_turn_hook(turn_hook);
-    session.set_retry_nudge_slot(retry_nudge);
     let stop_hook =
         super::stop_hook::StopHook::from_settings(stop_hook_settings.as_ref(), &config.agent_dir)
             .map(std::sync::Arc::new);

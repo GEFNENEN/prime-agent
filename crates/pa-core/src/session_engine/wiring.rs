@@ -157,33 +157,6 @@ impl AgentSession {
         self.turn_hook = hook;
     }
 
-    /// Share the slot the request transform drains: the engine builds the
-    /// transform before the session exists, so both must hold the same
-    /// `Arc`. A session without the wiring keeps its own inert slot.
-    pub fn set_retry_nudge_slot(&mut self, slot: std::sync::Arc<std::sync::Mutex<Option<String>>>) {
-        self.retry_nudge = slot;
-    }
-
-    /// Queue a one-shot nudge for the next assembled request. The
-    /// transform drains it into a trailing user turn without touching the
-    /// persisted history (the empty-reply retry path).
-    pub fn queue_retry_nudge(&self, text: impl Into<String>) {
-        *self
-            .retry_nudge
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(text.into());
-    }
-
-    /// Drop any nudge a retry queued but never issued: the slot belongs to
-    /// the turn that queued it, so a queued-then-aborted retry cannot leave a
-    /// stray nudge behind for an unrelated later request.
-    pub fn clear_retry_nudge(&self) {
-        *self
-            .retry_nudge
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner) = None;
-    }
-
     /// Install the configured agent-end write-back hook (`stopHook`
     /// settings): subscribes the loop listener that renders each finished
     /// run and runs the hook command. The listener renders and spawns the
