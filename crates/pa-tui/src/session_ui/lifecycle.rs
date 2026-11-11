@@ -63,6 +63,7 @@ impl SessionUi {
             attach_cursor_present: false,
             session_name: None,
             cwd: options.cwd.clone(),
+            terminal_cwd: std::env::current_dir().unwrap_or_else(|_| options.cwd.clone()),
             session_dir: options.session_dir.clone(),
             script_path: options.script_path.clone(),
             model_selection: options.model_selection.clone(),
@@ -641,7 +642,7 @@ impl SessionUi {
         // Any browse selection belonged to the previous queue and drops.
         let _ = self.queue_selection.reset();
         view.queue_selected = None;
-        view.chrome.chat_name = self.session_display();
+        self.sync_chat_label(view);
         view.chrome.context = self.context;
         // The rebuilt transcript invalidates the announcement row tracking;
         // the goal state itself carries over (seeded at attach).

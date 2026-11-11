@@ -856,6 +856,74 @@ fn top_bar_centers_name_with_cost() {
 }
 
 #[test]
+fn top_bar_labels_an_unnamed_session_with_its_dir_and_cwd() {
+    let state = ChromeState {
+        chat_name: UNNAMED_SESSION.to_string(),
+        chat_path: Some(ChatPath {
+            session_dir: "/tmp/project".to_string(),
+            cwd: "/tmp/project".to_string(),
+        }),
+        ..Default::default()
+    };
+    let line = render_top_bar(&state, &theme(), 120);
+    let text = line.iter().map(|s| s.content.as_str()).collect::<String>();
+    assert_eq!(text.trim(), "unnamed (/tmp/project, /tmp/project)");
+    // A terminal still inside the session's directory stays dim: no red.
+    let error = theme().fg_style(ThemeColor::Error).fg;
+    assert!(line.iter().all(|span| span.style.fg != error));
+}
+
+#[test]
+fn top_bar_marks_a_diverged_cwd_in_red() {
+    let theme = theme();
+    let state = ChromeState {
+        chat_name: "the session".to_string(),
+        chat_path: Some(ChatPath {
+            session_dir: "/srv/session".to_string(),
+            cwd: "/srv/terminal".to_string(),
+        }),
+        ..Default::default()
+    };
+    let line = render_top_bar(&state, &theme, 120);
+    let text = line.iter().map(|s| s.content.as_str()).collect::<String>();
+    assert_eq!(text.trim(), "the session (/srv/session, /srv/terminal)");
+    let cwd = line
+        .iter()
+        .find(|span| span.content == "/srv/terminal")
+        .expect("the cwd span");
+    assert_eq!(cwd.style.fg, theme.fg_style(ThemeColor::Error).fg);
+    let session_dir = line
+        .iter()
+        .find(|span| span.content == "/srv/session")
+        .expect("the session directory span");
+    assert_eq!(session_dir.style.fg, theme.fg_style(ThemeColor::Dim).fg);
+}
+
+#[test]
+fn top_bar_drops_the_paths_when_the_bar_is_too_narrow() {
+    let state = ChromeState {
+        chat_name: UNNAMED_SESSION.to_string(),
+        chat_path: Some(ChatPath {
+            session_dir: "/tmp/project".to_string(),
+            cwd: "/tmp/project".to_string(),
+        }),
+        ..Default::default()
+    };
+    let line = render_top_bar(&state, &theme(), 20);
+    let text = line.iter().map(|s| s.content.as_str()).collect::<String>();
+    assert_eq!(text.trim(), "unnamed");
+}
+
+#[test]
+fn a_trailing_separator_does_not_diverge_the_paths() {
+    let path = ChatPath {
+        session_dir: "/tmp/project/".to_string(),
+        cwd: "/tmp/project".to_string(),
+    };
+    assert!(!path.diverged());
+}
+
+#[test]
 fn tray_left_and_right_labels() {
     let state = ChromeState {
         show_manage: true,

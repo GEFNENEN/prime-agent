@@ -415,7 +415,7 @@ impl SessionUi {
             // The other-client arm of a display-name move (`/name` sets it locally).
             TurnUpdate::SessionInfoChanged { name } => {
                 self.session_name = name;
-                view.chrome.chat_name = self.session_display();
+                self.sync_chat_label(view);
                 self.dirty = true;
             }
             // Keep the local tier state current; `/fast` reads it.

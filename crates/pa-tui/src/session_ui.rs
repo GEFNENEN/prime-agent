@@ -165,6 +165,9 @@ pub(crate) struct SessionUi {
     pub(crate) attach_cursor_present: bool,
     session_name: Option<String>,
     cwd: PathBuf,
+    /// The terminal's working directory when the TUI started: the top bar
+    /// compares it with `cwd` to decide whether the session was created here.
+    terminal_cwd: PathBuf,
     session_dir: Option<PathBuf>,
     script_path: Option<PathBuf>,
     model_selection: ModelSelection,
@@ -503,13 +506,24 @@ impl SessionUi {
         }
     }
 
-    fn session_display(&self) -> String {
-        // "name(cwd)" so two sessions sharing a name stay distinguishable.
-        let cwd = crate::chrome::display_name(&self.cwd.to_string_lossy());
-        match &self.session_name {
-            Some(name) => format!("{name}({cwd})"),
-            None => cwd,
-        }
+    /// The top bar's label: the session name, or [`UNNAMED_SESSION`] until
+    /// `/name` sets one.
+    fn session_label(&self) -> String {
+        self.session_name
+            .clone()
+            .unwrap_or_else(|| crate::chrome::UNNAMED_SESSION.to_string())
+    }
+
+    /// Install the top bar's `name (session dir, cwd)` label: the directory the
+    /// session was created in beside the terminal's own cwd, which the bar
+    /// marks red once the two diverge (an attach from another shell).
+    pub(crate) fn sync_chat_label(&mut self, view: &mut AgentView) {
+        view.chrome.chat_name = self.session_label();
+        view.chrome.chat_path = Some(crate::chrome::ChatPath {
+            session_dir: self.cwd.to_string_lossy().into_owned(),
+            cwd: self.terminal_cwd.to_string_lossy().into_owned(),
+        });
+        self.dirty = true;
     }
 
     pub(crate) async fn current_model_provider(&mut self) -> Option<String> {
