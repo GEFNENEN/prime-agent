@@ -6,9 +6,9 @@
 每条的原理、改动文件与验证记录都在提交正文里（`git log -1 <hash>`），这里只留
 一行说清它做了什么。
 
-- 基线：`upstream/main` @ `6aaa3a255`（2026-11-11；上一个同步点是 `c4d420183`）。
-  这一版没有 tag 覆盖它：最新 tag `v0.10.3-beta.5`（2026-10-30）比它早 13 个提交，
-  所以按 commit 同步，不是按 tag。
+- 基线：`v0.10.3`（tag）@ `d649b93cf`（2026-11-11；上一个同步点是 `6aaa3a255`）。
+  这一版有 tag 覆盖，且 tag 就是 `upstream/main` 的 tip
+  （`git rev-list --count v0.10.3..upstream/main` = 0），所以这次按 tag 同步。
 - 补丁清单见下表
 - 维护流程见 [MAINTAINING.md](MAINTAINING.md)
 
@@ -30,60 +30,60 @@
 
 | # | 提交 | 类型 | 摘要 |
 | --- | --- | --- | --- |
-| 1 | `7040869c6` | fix | 顶栏显示会话名与（会话目录, 终端 cwd）；无名会话显示 `unnamed`，两者不一致时 cwd 标红（收尾 `82aeb1efa`） |
-| 2 | `9f654eefa` | fix | 内核忙时等待更久（5s → 30s） |
-| 3 | `7a5aa9a89` | fix | 从 agent 主题目录解析自定义主题 |
-| 4 | `bc2edde7d` | fix | 分离进程不再弹出控制台窗口 |
-| 5 | `43fcae593` | feat | 每个被接纳的 turn 前运行 turnHook |
-| 6 | `1a05667f1` | feat | 运行结束后通过 stopHook 写回 |
-| 7 | `13c379c6b` | fix | 在运行结束前同步 spawn stopHook |
-| 8 | `d1a475da5` | feat | 用 updateGuard 拦截自更新 |
-| 9 | `f50a5e2f0` | fix | Windows 剪贴板走 UTF-8 控制台 |
-| 10 | `ef4268000` | fix | 所有多行粘贴折叠为标记 |
-| 11 | `5a7f9b189` | feat | 新增 clean-kernel-state 命令 |
-| 12 | `e56936bd1` | fix | 流空闲超时：chunk 120s 无数据记为超时连接的失败（空回复自动重试已交还上游 #3968，收尾 `e23f3f668`） |
-| 13 | `23b871159` | fix | 子代理对被注入的消息沉默时通知父代理重新派活（收尾 `e23f3f668`：不再自带重试与 nudge） |
-| 14 | `d2efe3006` | fix | 停滞通知只发给父代理一次 |
-| 15 | `a4357528e` | fix | 收养无 bootstrap 记录的 kernel venv |
-| 16 | `29f95acde` | fix | 托盘显示 provider 与配置的模型名 |
-| 17 | `922877167` | fix | 推理档位一路带到线上 |
-| 18 | `46ef02dd7` | fix | `/speed` 开关持久化 |
-| 19 | `effc8322f` | feat | 新增 session clean 清理空会话 |
-| 20 | `1f28b6107` | fix | refine 的 passthrough 头改为合并而非整表覆盖 |
-| 21 | `080eeedea` | fix | 多行粘贴在写边界被拆开时仍按粘贴处理 |
-| 22 | `8a6d530e6` | feat | agents view 的 Model 列显示 provider / model |
-| 23 | `6555d840c` | fix | 用户消息回显改为纯文本，不再吞字符 |
-| 24 | `41a1fe876` | fix | 清掉 fork 的 CI 门（fmt / clippy / 乱码注释） |
-| 25 | `858877a2f` | fix | 单独的 `>` 保持字面显示（APPEND 续跑命令） |
-| 26 | `589d84b0c` | fix | RPC 的 lease 探测移出 tokio 运行时 |
-| 27 | `78da4a5d6` | fix | RPC 会话接入心跳与阈值自动压缩 |
-| 28 | `55c26bf8c` | fix | daemon 把 provider 头贴到 `Model` 上给直连接缝用 |
-| 29 | `4e539d2b0` | fix | refine 请求保持机器可解析，失败时透出 provider 原话 |
-| 30 | `758ddcebb` | fix | refine 的空回复在解析错误里点名 |
-| 31 | `9b6ce8797` | fix | provider 报错不再被当成空回复重试；refine 不再压低输出预算 |
-| 32 | `5c984173b` | fix | Windows 括号粘贴从按键流重组为一次粘贴 |
-| 33 | `25267c0d4` | feat | ACP：Python cell 按代码首行命名，并上报上下文用量 |
-| 34 | `304f6ba33` | feat | TUI：`PASTE_TRACE` 打印粘贴路径上的原始终端事件 |
-| 35 | `1ee0a0904` | feat | 按受众（人 / agent）限定可见模型与推理档位：`visibleModels`、`thinkingLevels` |
-| 36 | `731c0fcb8` | fix | `/model` picker 接上 `visibleModels.human`（收尾：`47e90672e`、`f28570206`） |
-| 37 | `2dc25b82b` | feat | MCP 调用默认超时：全局设置 `mcpCallTimeoutMs`，server 自带的 `callTimeoutMs` 优先 |
-| 38 | `1c2c749e7` | feat | MCP stdio 的 `env` 支持字面值（`{"value": ...}` 与 `--env-value CHILD=VALUE`） |
-| 39 | `f55353f2d` | fix | `python_repl` 的 per-call 超时上限跟随会话的 `pythonCellTimeoutMs` |
+| 1 | `0ba10af4d` | fix | 顶栏显示会话名与（会话目录, 终端 cwd）；无名会话显示 `unnamed`，两者不一致时 cwd 标红（收尾 `c97207137`） |
+| 2 | `cd105a29b` | fix | 内核忙时等待更久（5s → 30s） |
+| 3 | `c23b926ed` | fix | 从 agent 主题目录解析自定义主题 |
+| 4 | `f8b7fce94` | fix | 分离进程不再弹出控制台窗口 |
+| 5 | `4dba733f8` | feat | 每个被接纳的 turn 前运行 turnHook |
+| 6 | `5a539c060` | feat | 运行结束后通过 stopHook 写回 |
+| 7 | `11ae3d11f` | fix | 在运行结束前同步 spawn stopHook |
+| 8 | `57aceaeb9` | feat | 用 updateGuard 拦截自更新 |
+| 9 | `e59034d9d` | fix | Windows 剪贴板走 UTF-8 控制台 |
+| 10 | `37d8e8deb` | fix | 所有多行粘贴折叠为标记 |
+| 11 | `8fbf4dccb` | feat | 新增 clean-kernel-state 命令 |
+| 12 | `5c93f35d4` | fix | 流空闲超时：chunk 120s 无数据记为超时连接的失败（空回复自动重试已交还上游 #3968，收尾 `913a5db39`） |
+| 13 | `72b8638fa` | fix | 子代理对被注入的消息沉默时通知父代理重新派活（收尾 `913a5db39`：不再自带重试与 nudge） |
+| 14 | `68687bafe` | fix | 停滞通知只发给父代理一次 |
+| 15 | `a559288eb` | fix | 收养无 bootstrap 记录的 kernel venv |
+| 16 | `16378ab98` | fix | 托盘显示 provider 与配置的模型名 |
+| 17 | `e5d71ca75` | fix | 推理档位一路带到线上 |
+| 18 | `a228a6cf0` | fix | `/speed` 开关持久化 |
+| 19 | `325baa964` | feat | 新增 session clean 清理空会话 |
+| 20 | `a0031bcfa` | fix | refine 的 passthrough 头改为合并而非整表覆盖 |
+| 21 | `1611ae81e` | fix | 多行粘贴在写边界被拆开时仍按粘贴处理 |
+| 22 | `ab1e44474` | feat | agents view 的 Model 列显示 provider / model |
+| 23 | `c766bb6b6` | fix | 用户消息回显改为纯文本，不再吞字符 |
+| 24 | `d91dc44b1` | fix | 清掉 fork 的 CI 门（fmt / clippy / 乱码注释） |
+| 25 | `598db2cb3` | fix | 单独的 `>` 保持字面显示（APPEND 续跑命令） |
+| 26 | `40e3509eb` | fix | RPC 的 lease 探测移出 tokio 运行时 |
+| 27 | `eeb5f8f11` | fix | RPC 会话接入心跳与阈值自动压缩 |
+| 28 | `dfd3eb3bc` | fix | daemon 把 provider 头贴到 `Model` 上给直连接缝用 |
+| 29 | `ad485cb1f` | fix | refine 请求保持机器可解析，失败时透出 provider 原话 |
+| 30 | `495d0611b` | fix | refine 的空回复在解析错误里点名 |
+| 31 | `b849979ac` | fix | provider 报错不再被当成空回复重试；refine 不再压低输出预算 |
+| 32 | `2a29d8271` | fix | Windows 括号粘贴从按键流重组为一次粘贴 |
+| 33 | `91055dd21` | feat | ACP：Python cell 按代码首行命名，并上报上下文用量 |
+| 34 | `314e978c7` | feat | TUI：`PASTE_TRACE` 打印粘贴路径上的原始终端事件 |
+| 35 | `a57b4302b` | feat | 按受众（人 / agent）限定可见模型与推理档位：`visibleModels`、`thinkingLevels` |
+| 36 | `66d2120ae` | fix | `/model` picker 接上 `visibleModels.human`（收尾：`8bb327432`、`eed97a306`） |
+| 37 | `66006be23` | feat | MCP 调用默认超时：全局设置 `mcpCallTimeoutMs`，server 自带的 `callTimeoutMs` 优先 |
+| 38 | `e450a6171` | feat | MCP stdio 的 `env` 支持字面值（`{"value": ...}` 与 `--env-value CHILD=VALUE`） |
+| 39 | `d467fdf24` | fix | `python_repl` 的 per-call 超时上限跟随会话的 `pythonCellTimeoutMs` |
 
 表格按**行为补丁**计数，所以行数与提交数**不相等**：同一个补丁的后续收尾提交
 （对已入表补丁的修正、重构、补测试）并入该行的摘要，不另开一行——表末那条就是
-这样收了 `9df0655b4` 之后的两个（`e3a34b38b` 重构、`0855cfc01` 补测试）。想核对
-总数时用 `git log --oneline v0.10.3-beta.5..HEAD` 与表格、`docs:`、`chore: stamp`、
+这样收了 `66d2120ae` 之后的两个（`8bb327432` 重构、`eed97a306` 补测试）。想核对
+总数时用 `git log --oneline v0.10.3..HEAD` 与表格、`docs:`、`chore: stamp`、
 rebase 修复、收尾提交、行尾修复逐项对照；任何一侧新增提交都会让固定算术式过期，
 所以这里不写死数字。
 
 补丁之外还有五类提交不进表格：文档提交、版本戳提交、2 个 rebase 修复提交
-（`3d8daa6b7`、`50d5c969a`，改 `pa-tui` 的测试调用点）、已入表补丁的收尾提交、
-以及行尾修复提交（`db92dabc0`）。文档与版本戳提交随 rebase 改写 hash，按标题找
+（`0094eb36b`、`08fdd68b0`，改 `pa-tui` 的测试调用点）、已入表补丁的收尾提交、
+以及行尾修复提交（`296975cf4`）。文档与版本戳提交随 rebase 改写 hash，按标题找
 （`docs:` / `chore: stamp` 开头）；修复提交是重放破损的修补，不是本地补丁。
 
 补丁 26–31 是补录条目：它们一直在 `custom` 上（均为 HEAD 的祖先），此前没进清单，
-导致 rebase 时没人知道有这几处需要重新应用或验证。其中 `144a81bf2`（补丁 28）
+导致 rebase 时没人知道有这几处需要重新应用或验证。其中 `eeb5f8f11`（补丁 28）
 体量最大、风险最高——新增一个 RPC 调度器与阈值压缩（`rpc/cron.rs`、
 `rpc/compaction.rs`），rebase 到它时按标题重放并补一次验证。
 
@@ -98,16 +98,36 @@ rebase 修复、收尾提交、行尾修复逐项对照；任何一侧新增提�
 | `custom.30` | 安装目录里是 `0.10.2+custom.30`；rebase 后新树另升 `custom.31`，该号不再给新树 |
 | `custom.31` | stamp 早于 `visibleModels`/`thinkingLevels`，且从未装进安装目录 |
 | `custom.32` | 不含 `/model` picker 过滤（14:40 构建，装过安装目录） |
-| `custom.33` | 含 `9df0655b4` 及收尾 |
+| `custom.33` | 含 `66d2120ae` 及收尾 |
 | `custom.34` | 本次同步到 `c4d420183`。二进制内容变了，所以升号 |
 | `custom.35` | 在 `custom.34` 之上加了 MCP 调用超时（`mcpCallTimeoutMs`）、MCP `env` 字面值，以及 `python_repl` 的 per-call 超时上限（补丁 37–39） |
-| `custom.36` | 同步上游到 `6aaa3a255`（25 个提交），并把空回复自动重试交还上游 #3968（收尾 `e23f3f668`）。二进制内容变了，所以升号 |
-| `custom.37` | 顶栏改成「会话名 (会话目录, 终端 cwd)」，无名会话显示 `unnamed`，两个目录不一致时 cwd 标红（补丁 1 收尾 `82aeb1efa`） |
+| `custom.36` | 同步上游到 `6aaa3a255`（25 个提交），并把空回复自动重试交还上游 #3968（收尾 `913a5db39`）。二进制内容变了，所以升号 |
+| `custom.37` | 顶栏改成「会话名 (会话目录, 终端 cwd)」，无名会话显示 `unnamed`，两个目录不一致时 cwd 标红（补丁 1 收尾 `c97207137`） |
+| `custom.38` | 同步上游到 `v0.10.3`（`d649b93cf`，8 个提交）。基线版本从 `0.10.3-beta.5` 变成 `0.10.3`，所以后缀直接是 `0.10.3+custom.38`；二进制内容变了，所以升号 |
 
 stamp 提交写于哪个基线，rebase 后正文里的版本号可能与实际写入的不一致；那种提交
-正文不追改（改写历史只为一个字符串不值当）。
+正文不追改（改写历史只为一个字符串不值当）。唯一例外是**标题行**：`v0.10.3` 那次
+基线版本变了（`0.10.3-beta.5` → `0.10.3`），把 `chore: stamp this fork build as
+0.10.3-beta.5+custom.N` 的标题统一改成 `0.10.3+custom.N`，否则标题与实际写入的号
+对不上；更早的 `0.10.2+custom.N` 标题属于它当时写下的号，保持原样。
 
 ## 下次同步注意
+
+**冲突化解（`6aaa3a255` → `v0.10.3` 那次，8 个提交）**
+
+1. 上游有一个 tag-only 的 nightly 版本提交（只改 Cargo.toml / Cargo.lock 的版本行，
+   分支上从不落地）：rebase 到它必然冲突，直接 `git rebase --skip` 丢掉。
+2. 12 个 `chore: stamp` 提交逐个冲突在 Cargo.toml / Cargo.lock，冲突内容只有版本行。
+   仓库里这两个文件是 **CRLF**（`git ls-files --eol` 显示 `i/crlf`，
+   `core.autocrlf=false`，没有 `.gitattributes`）：用 `Set-Content` 之类默认换行重写
+   会造成整文件冲突，要用 `[IO.File]::ReadAllBytes` + `WriteAllText(..., UTF8Encoding($false))`
+   做字节级替换。
+3. `build: turn incremental compilation off for the dev profile` 除了 MAINTAINING.md
+   还改了 Cargo.toml（在 `[profile.release]` 末尾追加 `[profile.dev] incremental =
+   false`），不能用「取 ours 再改版本行」的通用解法——那样会把它真正的改动丢掉，
+   提交退化成只剩文档。这类提交要在 `--ours` 之后把那段补回再 `commit --amend`。
+4. 基线版本变了以后 stamp 提交的**标题**要一起改（见上一节），否则标题里的
+   `0.10.3-beta.5+custom.N` 与树里的 `0.10.3+custom.N` 对不上。
 
 **冲突化解（`c4d420183` → `6aaa3a255` 那次，25 个提交）**
 
@@ -141,7 +161,7 @@ stamp 提交写于哪个基线，rebase 后正文里的版本号可能与实际�
 
 解决冲突时容易「删标记行连带吃掉相邻 `}`」，测试文件尤其常见——rebase 前先跑一次
 `cargo check -p <crate> --all-targets`。`crates/pa-tui/src/input.rs` 承载补丁
-22/33/35，是 rebase 高发区，且历史上被误写成过 CRLF（`db92dabc0` 只转回 LF）；
+22/33/35，是 rebase 高发区，且历史上被误写成过 CRLF（`296975cf4` 只转回 LF）；
 同步前用 `git diff --ignore-cr-at-eol` 确认没有整文件噪声。
 
 **两条不当门禁、也不当故障的现象**
@@ -166,6 +186,6 @@ stamp 提交写于哪个基线，rebase 后正文里的版本号可能与实际�
 - **空回复自动重试**：上游 `d919386ab`（#3968）把「用户回合的静默回复」判成可重试的
   `incomplete_reply` 失败——同一条回合链里重试一次，仍空就以
   `The model ended its reply with no visible answer` 收尾。本分支原来的重试循环、
-  3 秒等待、请求级 nudge 与可见警告行随之删除（收尾 `e23f3f668`）。留下的只是上游
+  3 秒等待、请求级 nudge 与可见警告行随之删除（收尾 `913a5db39`）。留下的只是上游
   不覆盖的那半：子代理对**被注入**的消息沉默时（`owes_answer == false`）通知父代理
   重新派活，见补丁 13。
