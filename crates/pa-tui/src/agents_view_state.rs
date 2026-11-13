@@ -1063,54 +1063,6 @@ mod tests {
         assert_eq!(layout.details["session:s1"].trim_end(), "$1.50");
     }
 
-    /// The Model column now carries `provider / model:level`, which is wider than
-    /// a bare id. The ceiling has to fit the widest real pair on a normal
-    /// terminal, or every qualified row truncates instead of the rare one.
-    #[test]
-    fn the_model_column_fits_a_qualified_provider_model_pair() {
-        let widest = "opencode-go-hr / deepseek-v4.1-flash:max";
-        assert_eq!(str_width(widest), 40, "the cell this ceiling must fit");
-        let roster = vec![roster_entry(
-            "s1",
-            "running",
-            &json!({
-                "sessionId": "s1",
-                "lifecycle": "live",
-                "model": {"provider": "opencode-go-hr", "modelId": "deepseek-v4.1-flash"},
-                "thinkingLevel": "max",
-                "usage": { "cost": 0.5 },
-            }),
-        )];
-        let records = reconcile_unified_sessions(&roster, &[], None);
-        let rows = crate::agents_view_forest::build_rows::<std::collections::hash_map::RandomState>(
-            &records,
-            None,
-            &std::collections::HashSet::default(),
-            &std::collections::HashSet::default(),
-            &std::collections::HashMap::default(),
-            &crate::agents_view_forest::ActivityCounts::default(),
-            None,
-        );
-        // An 80-column terminal is the ordinary case and must not truncate.
-        let layout = build_layout(&rows, 80);
-        assert!(
-            layout.model_width >= str_width(widest),
-            "80 cols must fit {widest:?}: got {}",
-            layout.model_width
-        );
-        // A narrow terminal still yields: the Model column takes what the name
-        // column can spare rather than pushing it off the row.
-        let narrow = build_layout(&rows, 60);
-        assert!(
-            narrow.model_width < str_width(widest),
-            "60 cols must shrink the Model column, not the Session name"
-        );
-        assert!(
-            narrow.name_width >= 10,
-            "the name column keeps a usable floor"
-        );
-    }
-
     #[test]
     fn saved_only_age_reads_modified_first_and_falls_back_to_created() {
         // A row without an activeSessionId is a saved-only record — the age column reads

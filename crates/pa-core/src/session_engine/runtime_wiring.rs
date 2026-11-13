@@ -610,7 +610,6 @@ mod tests {
                     ..Default::default()
                 },
             )),
-            ui: None,
             on_late_sent_agent_message: None,
         };
         // The budget the user authorized reaches the model's own `timeout`

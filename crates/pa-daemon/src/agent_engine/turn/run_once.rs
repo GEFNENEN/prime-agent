@@ -36,7 +36,7 @@ impl AgentSessionEngine {
             return Vec::new();
         }
         let auth = pa_core::auth::AuthStorage::create(&self.config.agent_dir);
-        let registry =
+        let mut registry =
             pa_core::models::ModelRegistry::create(auth, self.config.agent_dir.join("models.json"));
         // Failover is the agent substituting one model for another: the agent
         // limit decides the candidates, so a hidden model is never a fallback.

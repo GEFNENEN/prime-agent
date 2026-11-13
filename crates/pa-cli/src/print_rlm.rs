@@ -745,7 +745,7 @@ impl RlmSubagentHost for InlineHost {
                     .as_deref()
                     .and_then(pa_ai::models::thinking_level_from_str);
                 let auth = pa_core::auth::AuthStorage::create(&config.agent_dir);
-                let registry = pa_core::models::ModelRegistry::create(
+                let mut registry = pa_core::models::ModelRegistry::create(
                     auth,
                     config.agent_dir.join("models.json"),
                 );
