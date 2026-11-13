@@ -104,6 +104,9 @@ git fetch upstream --tags --prune
 | `crates/pa-core/src/session_engine/mod.rs`、`wiring.rs` | `AgentSession` 字段与构造 | 新字段（如 `turn_hook`）与初始化、setter 一起保留 |
 | `crates/pa-daemon/src/agent_engine/turn/model.rs` | 子代理停滞通知挂在回合 settle 之前（`is_empty_reply` 且 `!owes_answer`） | 对齐上游的 `settle` / `incomplete_reply` 结构后重新插入：上游的判定只管用户回合，注入消息的沉默仍要自己通知父代理 |
 | `crates/pa-ai/src/utils_inner/http.rs` | 流式空闲超时包在 `next_text/next_bytes` | 上游若重构 stream 读取，超时逻辑要跟着搬到新的底层读取函数 |
+| `crates/pa-core/src/models/registry.rs` 及 7 处 registry 构造点 | 上游会删/改 registry 的私有模型鉴权 API（#4044 删掉了整个 `load_private_authorization_from_cache()`） | 删调用、留 `apply_visibility(...)`；被降级成 `let registry` 的改回 `let mut`。构造点在 `runtime_wiring.rs`、`pa-cli/src/print_rlm.rs`、`turn/run_once.rs`、`image_route.rs`、`model_catalog.rs`、`rpc/model_commands.rs`、`state_getters/usage.rs` |
+| `crates/pa-tui/src/agents_view_state.rs` | 上游会重写 agents view 的列宽规则（#4036） | 上游的算法赢；本分支的 `.min(44)` 与它的测试一起删，只保留「列里显示 `provider / model`」 |
+| `Cargo.toml` 的 `[profile.dev]` | 本分支的 `incremental = false` 与上游自己的 `[profile.dev]` 撞成 duplicate table | 并进上游那张表，不要再追加第二份 |
 
 rebase 期间不要用 `git rebase -i` 手工压缩历史；补丁保持独立提交，便于逐项
 移植和逐项验证。
