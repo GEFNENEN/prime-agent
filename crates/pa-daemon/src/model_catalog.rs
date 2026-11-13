@@ -33,7 +33,7 @@ impl Worker {
         }
         let agent_dir = self.config.agent_dir.clone();
         let models_json = agent_dir.join("models.json");
-        let registry = pa_core::models::ModelRegistry::create(
+        let mut registry = pa_core::models::ModelRegistry::create(
             pa_core::auth::AuthStorage::create(&agent_dir),
             models_json.clone(),
         );
