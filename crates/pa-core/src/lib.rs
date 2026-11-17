@@ -48,6 +48,7 @@ pub mod autonomous;
 pub mod cron;
 pub mod export_html;
 pub mod goals;
+pub mod hindsight;
 pub mod kernel;
 pub mod mcp;
 pub mod models;
