@@ -116,6 +116,7 @@ rebase 期间不要用 `git rebase -i` 手工压缩历史；补丁保持独立�
 | 改动领域 | 命令 |
 | --- | --- |
 | turnHook / stopHook | `cargo test -p pa-core --lib turn_hook`，`stop_hook` 同样逐个跑（`cargo test` 只接受一个 TESTNAME） |
+| Hindsight Rust 桥（prompt/stop） | `cargo test -p pa-core hindsight`；`cargo test -p pa-cli --test hindsight_hook_e2e`（假 HTTP 服务，不连真实 Hindsight） |
 | 子代理停滞通知（faux 引擎） | `cargo test -p pa-daemon --lib empty_reply`；同一 crate 的 `incomplete_reply` 是上游的重试，一起跑 |
 | Authorization 去重 | `cargo test -p pa-ai --lib authorization` |
 | CLI 命令 | `cargo test -p pa-cli --lib`（端口类失败可能是环境性，见下） |

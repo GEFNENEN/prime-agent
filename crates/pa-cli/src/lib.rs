@@ -34,6 +34,7 @@ pub(crate) mod factory_dir_command;
 pub(crate) mod file_processor;
 pub(crate) mod global_flags;
 pub(crate) mod headless_autonomous;
+pub(crate) mod hindsight_hook_command;
 pub(crate) mod incident;
 pub(crate) mod initial_message;
 pub(crate) mod installer_update;
@@ -91,6 +92,12 @@ pub fn main_with_runtime(args: &[String], runtime: &dyn mode::Runtime) -> i32 {
 
 fn main_impl(args: &[String], runtime: &dyn mode::Runtime) -> Result<i32, String> {
     use std::io::IsTerminal;
+
+    // The hidden Hindsight hook entry runs before any startup work so its
+    // stdout carries the hook JSON and nothing else.
+    if args.first().map(String::as_str) == Some("hindsight-hook") {
+        return Ok(crate::hindsight_hook_command::run(&args[1..]));
+    }
 
     // Telemetry reports the version `--version` prints: the beta channel
     // restamps only the packaged manifest, never the compiled-in version.

@@ -1,0 +1,1 @@
+- Restored Hindsight memory for the Rust build through hidden `hindsight-hook prompt|stop` entries (prompt injection, session write-back, fail-open, no Node).
