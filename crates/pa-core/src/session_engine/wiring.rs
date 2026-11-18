@@ -174,7 +174,7 @@ impl AgentSession {
                 let hook = std::sync::Arc::clone(&hook);
                 let session = std::sync::Arc::clone(&session);
                 Box::pin(async move {
-                    if let pa_agent::types::AgentEvent::AgentEnd { messages } = event {
+                    if let pa_agent::types::AgentEvent::AgentEnd { messages, .. } = event {
                         let (session_id, cwd) = {
                             let session = session.lock().await;
                             (
