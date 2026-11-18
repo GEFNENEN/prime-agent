@@ -120,6 +120,25 @@ stamp 提交写于哪个基线，rebase 后正文里的版本号可能与实际�
 
 ## 下次同步注意
 
+**冲突化解（`0bce1417b` → `61d4b4262` 那次，12 个提交）**
+
+1. 121 个提交里有 6 个冲突点，全部按「保留上游新结构、本地补丁作增量重接」处理：
+   - `session_engine/mod.rs` 三处初始化块（turnHook、retry nudge、empty-reply 交还）：
+     上游把 `compaction_flight` / `refinements_in_flight` / `refinement_cancel` 改成了
+     `Arc<...>`，三处都取上游字段、只把本地的 `turn_hook: None` / `retry_nudge` 接回去。
+   - `session_engine/tests.rs` 整文件冲突：两边函数集合完全一致，只有 digest 恢复测试
+     是上游新语义（改成 append 而非 replace），取上游侧。
+   - `Cargo.toml` / `Cargo.lock`（10 处）：`stamp this fork build as 0.10.2+custom.25`
+     只冲突版本行，回填该历史 stamp 的字面版本。
+2. 上游给 `AgentEvent::AgentEnd` 加了 `aborted` 字段：`session_engine/wiring.rs` 的
+   stopHook 监听只读 `messages`，模式改成 `{ messages, .. }`，否则 E0027。
+3. 对 `session_engine/tests.rs` 取 `--ours` 会连带丢掉
+   `a_resolved_model_bill_survives_its_callers_cancellation` 的闭合大括号（与上一次
+   rebase 同一个坑）。取完之后必须 `cargo check --all-targets`，那个提交正文里写明了
+   这一处。
+4. 版本号：基线从 `0.10.3` 变成 `0.10.4`，后缀随之是 `0.10.4+custom.41`（`custom.41`
+   此前从未构建，号不复用冲突）。
+
 **冲突化解（`v0.10.3` → `0bce1417b` 那次，43 个提交）**
 
 1. 上游 #4044 删掉了 `models/private_auth.rs`、`is_private_prime_inference_model` 和
