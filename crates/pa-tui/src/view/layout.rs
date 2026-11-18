@@ -12,7 +12,7 @@ pub(super) type LayoutOptions = (
     crate::theme::Theme,
     String,
     bool,
-    bool,
+    crate::transcript_time::TimestampFormat,
     bool,
     Option<url::Url>,
 );
@@ -364,7 +364,7 @@ impl AgentView {
             self.theme.clone(),
             self.code_block_indent.clone(),
             self.show_images,
-            self.show_timestamps,
+            self.timestamp_format,
             crate::image_component::fullscreen_image_fallback_active(),
             url::Url::from_directory_path(&self.chrome.cwd).ok(),
         );
@@ -395,7 +395,7 @@ impl AgentView {
         let mut tail: Vec<Line> = Vec::new();
         let muted = self.theme.fg_style(crate::theme::ThemeColor::Muted);
         let prefix =
-            |timestamp: Option<u64>| timestamp.map_or(0, |_| crate::transcript_time::PREFIX_WIDTH);
+            |timestamp: Option<u64>| timestamp.map_or(0, |_| self.timestamp_format.prefix_width());
         // In-flight bash output renders ABOVE the execution indicator and
         // flushes into the transcript when the turn settles.
         if !self.pending_bash.is_empty() {
@@ -418,7 +418,12 @@ impl AgentView {
                     body_width,
                 ));
                 if timestamp.is_some() {
-                    crate::transcript_time::decorate(&mut rows, timestamp, muted);
+                    crate::transcript_time::decorate(
+                        &mut rows,
+                        timestamp,
+                        muted,
+                        self.timestamp_format,
+                    );
                 }
                 tail.extend(rows);
             }
@@ -434,7 +439,12 @@ impl AgentView {
                 width.saturating_sub(prefix(timestamp)),
             );
             if timestamp.is_some() {
-                crate::transcript_time::decorate(&mut rows, timestamp, muted);
+                crate::transcript_time::decorate(
+                    &mut rows,
+                    timestamp,
+                    muted,
+                    self.timestamp_format,
+                );
             }
             tail.extend(rows);
         } else if let Some(compaction) = &self.compaction {
@@ -464,7 +474,12 @@ impl AgentView {
                 body_width,
             ));
             if timestamp.is_some() {
-                crate::transcript_time::decorate(&mut rows, timestamp, muted);
+                crate::transcript_time::decorate(
+                    &mut rows,
+                    timestamp,
+                    muted,
+                    self.timestamp_format,
+                );
             }
             tail.extend(rows);
         } else if let Some(working) = &self.working {
@@ -476,7 +491,12 @@ impl AgentView {
                 width.saturating_sub(prefix(timestamp)),
             );
             if timestamp.is_some() {
-                crate::transcript_time::decorate(&mut rows, timestamp, muted);
+                crate::transcript_time::decorate(
+                    &mut rows,
+                    timestamp,
+                    muted,
+                    self.timestamp_format,
+                );
             }
             tail.extend(rows);
         }

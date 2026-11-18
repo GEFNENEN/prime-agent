@@ -237,6 +237,8 @@ impl SessionUi {
             values.clear_on_shrink = settings.clear_on_shrink();
             values.terminal_progress = settings.show_terminal_progress();
             values.timestamps = settings.show_timestamps();
+            values.timestamp_date = settings.timestamp_date();
+            values.timestamp_millis = settings.timestamp_millis();
             values.idle_eviction_minutes = settings.idle_eviction_minutes();
             values.mermaid = settings.mermaid_rendering_mode();
             values.quiet_startup = settings.quiet_startup();
@@ -258,6 +260,8 @@ impl SessionUi {
             values.tree_filter_mode = "user-only".to_string();
             values.warnings_anthropic_extra_usage = true;
             values.theme = "prime".to_string();
+            values.timestamp_date = "YY/MM/DD".to_string();
+            values.timestamp_millis = 3;
             // No settings seam: the tier row reads "default", never a blank value.
             values.default_service_tier = "default".to_string();
         }
@@ -469,7 +473,27 @@ impl SessionUi {
                         return;
                     }
                 }
-                view.show_timestamps = value == "true";
+                view.timestamp_format.enabled = value == "true";
+            }
+            "timestamps-date" => {
+                if let Some(settings) = &self.client_settings {
+                    if let Err(error) = settings.set_timestamp_date(value) {
+                        self.error_row(&format!("{error:#}"), view);
+                        return;
+                    }
+                }
+                view.timestamp_format.date =
+                    crate::transcript_time::TimestampDate::from_setting(value);
+            }
+            "timestamps-millis" => {
+                let millis = value.parse::<u8>().unwrap_or(3).min(3);
+                if let Some(settings) = &self.client_settings {
+                    if let Err(error) = settings.set_timestamp_millis(millis) {
+                        self.error_row(&format!("{error:#}"), view);
+                        return;
+                    }
+                }
+                view.timestamp_format.millis = millis;
             }
             "idle-eviction-minutes" => {
                 if let Some(settings) = &self.client_settings {

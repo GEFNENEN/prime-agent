@@ -66,6 +66,8 @@ fn tabs_partition_the_settings_rows() {
                     "theme",
                     "terminal-progress",
                     "timestamps",
+                    "timestamps-date",
+                    "timestamps-millis",
                     "clear-on-shrink",
                     "show-images",
                     "auto-resize-images",
@@ -732,5 +734,40 @@ fn threshold_control_retains_off_grid_values_and_selects_neighbouring_presets() 
                 }
             );
         }
+    }
+}
+
+#[test]
+fn timestamp_format_rows_cycle_every_documented_value() {
+    let values = SettingsCurrentValues {
+        timestamp_date: "YY/MM/DD".to_string(),
+        timestamp_millis: 3,
+        ..Default::default()
+    };
+    let mut menu = SettingsMenu::new(settings_menu_rows(&values));
+    // Display tab: theme, terminal-progress, timestamps, timestamps-date,
+    // timestamps-millis.
+    menu.handle_key("3", &kb());
+    for _ in 0..3 {
+        menu.handle_key("down", &kb());
+    }
+    for expected in ["YYYY/MM/DD", "none", "MM/DD", "YY/MM/DD"] {
+        assert_eq!(
+            menu.handle_key("right", &kb()),
+            SettingsMenuAction::Change {
+                id: "timestamps-date",
+                value: expected.into()
+            }
+        );
+    }
+    menu.handle_key("down", &kb());
+    for expected in ["0", "1", "2", "3"] {
+        assert_eq!(
+            menu.handle_key("right", &kb()),
+            SettingsMenuAction::Change {
+                id: "timestamps-millis",
+                value: expected.into()
+            }
+        );
     }
 }

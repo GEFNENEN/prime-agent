@@ -13,7 +13,7 @@ impl AgentView {
         let detail = self.entry_detail(index);
         let width = width.saturating_sub(
             self.entry_timestamp(index, width)
-                .map_or(0, |_| crate::transcript_time::PREFIX_WIDTH),
+                .map_or(0, |_| self.timestamp_format.prefix_width()),
         );
         match entry {
             ChatEntry::Status { text, .. } => {
@@ -419,11 +419,17 @@ mod tests {
             color in prop::sample::select(vec![ColorMode::TrueColor, ColorMode::Color256]),
             show_images in any::<bool>(),
             show_timestamps in any::<bool>(),
+            timestamp_date in prop::sample::select(vec!["none", "MM/DD", "YY/MM/DD", "YYYY/MM/DD"]),
+            timestamp_millis in 0u8..=3,
         ) {
             let mut view = AgentView::new(Theme::builtin("prime", color));
             view.detail = detail;
             view.show_images = show_images;
-            view.show_timestamps = show_timestamps;
+            view.timestamp_format = crate::transcript_time::TimestampFormat::new(
+                show_timestamps,
+                timestamp_date,
+                timestamp_millis,
+            );
             indent.clone_into(&mut view.code_block_indent);
             for entry in entries {
                 view.push_entry(entry);

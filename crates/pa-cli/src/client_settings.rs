@@ -177,6 +177,19 @@ impl ClientSettings for CliClientSettings {
         set_show_timestamps,
         bool
     );
+    str_setting!(
+        timestamp_date,
+        set_timestamp_date,
+        get_timestamp_date,
+        set_timestamp_date
+    );
+    setting!(
+        timestamp_millis,
+        set_timestamp_millis,
+        get_timestamp_millis,
+        set_timestamp_millis,
+        u8
+    );
     setting!(
         image_auto_resize,
         set_image_auto_resize,
