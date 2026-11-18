@@ -71,6 +71,7 @@
 | 39 | `9abe2b924` | fix | `python_repl` 的 per-call 超时上限跟随会话的 `pythonCellTimeoutMs` |
 | 40 | `903505fbd` | feat | 恢复 Hindsight 记忆（隐藏 hook，见 `docs/hindsight-hook.md`） |
 | 41 | `e0df5aba3` | feat | TUI transcript 按条显示本地时间戳，`/settings → Display` 可开关（`terminal.showTimestamps`，默认关） |
+| 42 | `3ce9b9ff6` | feat | TUI 时间戳格式可调：日期（none / MM/DD / YY/MM/DD / YYYY/MM/DD）与毫秒位数（0–3），前缀宽度随格式 11–26 列；新增 `terminal.timestampDate`、`terminal.timestampMillis` |
 
 表格按**行为补丁**计数，所以行数与提交数**不相等**：同一个补丁的后续收尾提交
 （对已入表补丁的修正、重构、补测试）并入该行的摘要，不另开一行——表末那条就是
@@ -111,6 +112,7 @@ rebase 修复、收尾提交、行尾修复逐项对照；任何一侧新增提�
 | `custom.40` | 恢复 Hindsight 记忆（隐藏 hook）。二进制内容变了，所以升号 |
 | `custom.41` | TUI transcript 按条显示本地时间戳（`terminal.showTimestamps`，默认关）。二进制内容变了，所以升号 |
 | `custom.41`（重放） | 同步上游到 `upstream/main` `61d4b4262`（12 个提交，含稳定 tag `v0.10.4`）。基线版本从 `0.10.3` 变成 `0.10.4`，后缀随之变成 `0.10.4+custom.41`；`custom.41` 此前从未构建，所以号不复用冲突 |
+| `custom.42` | TUI 时间戳格式可调（日期 4 档、毫秒 0–3 位），前缀宽度随格式变化。二进制内容变了，所以升号 |
 
 stamp 提交写于哪个基线，rebase 后正文里的版本号可能与实际写入的不一致；那种提交
 正文不追改（改写历史只为一个字符串不值当）。唯一例外是**标题行**：`v0.10.3` 那次
