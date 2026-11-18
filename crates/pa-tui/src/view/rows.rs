@@ -103,7 +103,7 @@ impl AgentView {
         let detail = self.entry_detail(index);
         let timestamp = self.entry_timestamp(index, width);
         let width =
-            width.saturating_sub(timestamp.map_or(0, |_| crate::transcript_time::PREFIX_WIDTH));
+            width.saturating_sub(timestamp.map_or(0, |_| self.timestamp_format.prefix_width()));
         let mut rows = match entry {
             ChatEntry::Status { text, kind } => {
                 let style = match kind {
@@ -291,6 +291,7 @@ impl AgentView {
                 &mut rows,
                 timestamp,
                 self.theme.fg_style(ThemeColor::Muted),
+                self.timestamp_format,
             );
         }
         rows

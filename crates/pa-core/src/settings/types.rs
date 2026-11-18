@@ -181,6 +181,8 @@ pub struct TerminalSettings {
     pub clear_on_shrink: Option<bool>,
     pub show_terminal_progress: Option<bool>,
     pub show_timestamps: Option<bool>,
+    pub timestamp_date: Option<String>,
+    pub timestamp_millis: Option<u8>,
     pub fullscreen_mouse: Option<bool>,
 }
 

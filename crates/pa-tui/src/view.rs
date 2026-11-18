@@ -118,8 +118,9 @@ pub struct AgentView {
     /// The `terminal.showImages` setting (default true): image blocks
     /// render metadata rows when set, `[Image: ...]` placeholders otherwise.
     pub show_images: bool,
-    /// One local timestamp prefix per rendered transcript entry.
-    pub show_timestamps: bool,
+    /// The transcript timestamp format (`terminal.showTimestamps` plus the
+    /// date and fractional-second choices); display-only.
+    pub(crate) timestamp_format: crate::transcript_time::TimestampFormat,
     /// The `showHardwareCursor` setting (TS default false): frame paints
     /// never drag a visible cursor across the pane.
     pub show_hardware_cursor: bool,
@@ -331,7 +332,7 @@ impl AgentView {
             settings_menu: None,
             info_panel: None,
             show_images: true,
-            show_timestamps: false,
+            timestamp_format: crate::transcript_time::TimestampFormat::default(),
             show_hardware_cursor: false,
             splash_suppressed: false,
             older_history_loading: false,
@@ -407,7 +408,9 @@ impl AgentView {
 
     /// A timestamp that may decorate one rendered block at this width.
     pub(super) fn display_timestamp(&self, timestamp: Option<u64>, width: usize) -> Option<u64> {
-        if !self.show_timestamps || width <= crate::transcript_time::PREFIX_WIDTH {
+        if !self.timestamp_format.enabled
+            || width < self.timestamp_format.prefix_width() + crate::transcript_time::MIN_BODY_WIDTH
+        {
             return None;
         }
         timestamp

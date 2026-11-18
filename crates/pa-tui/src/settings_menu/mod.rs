@@ -269,9 +269,30 @@ pub fn settings_menu_rows(current: &SettingsCurrentValues) -> Vec<SettingsMenuRo
         SettingsMenuRow {
             id: "timestamps",
             label: "Transcript timestamps",
-            description: "Show one local yy/mm/dd HH:MM:SS.mmm timestamp per message or tool card",
+            description: "Show one local timestamp per message or tool card",
             current: current.timestamps.to_string(),
             values: Some(bool_value()),
+            submenu: None,
+        },
+        SettingsMenuRow {
+            id: "timestamps-date",
+            label: "Timestamp date",
+            description: "Date part: none, MM/DD, YY/MM/DD, or YYYY/MM/DD",
+            current: current.timestamp_date.clone(),
+            values: Some(
+                crate::transcript_time::TIMESTAMP_DATE_VALUES
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect(),
+            ),
+            submenu: None,
+        },
+        SettingsMenuRow {
+            id: "timestamps-millis",
+            label: "Timestamp milliseconds",
+            description: "Fractional-second digits (0 hides the fraction)",
+            current: current.timestamp_millis.to_string(),
+            values: Some(vec!["0".into(), "1".into(), "2".into(), "3".into()]),
             submenu: None,
         },
         SettingsMenuRow {
@@ -389,6 +410,8 @@ pub struct SettingsCurrentValues {
     pub clear_on_shrink: bool,
     pub terminal_progress: bool,
     pub timestamps: bool,
+    pub timestamp_date: String,
+    pub timestamp_millis: u8,
     pub idle_eviction_minutes: String,
     pub steering_mode: String,
     pub follow_up_mode: String,

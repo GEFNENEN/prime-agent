@@ -1211,13 +1211,30 @@ mod tests {
     fn transcript_timestamps_round_trip_through_the_global_scope() {
         let mut manager = SettingsManager::in_memory(&Settings::default());
         assert!(!manager.get_show_timestamps(), "unset means off");
+        assert_eq!(manager.get_timestamp_date(), "YY/MM/DD");
+        assert_eq!(manager.get_timestamp_millis(), 3);
         manager.set_show_timestamps(true).unwrap();
+        manager.set_timestamp_date("YYYY/MM/DD").unwrap();
+        manager.set_timestamp_millis(1).unwrap();
         assert!(manager.get_show_timestamps());
+        assert_eq!(manager.get_timestamp_date(), "YYYY/MM/DD");
+        assert_eq!(manager.get_timestamp_millis(), 1);
         manager.reload().unwrap();
         assert!(
             manager.get_show_timestamps(),
             "the global scope persists it"
         );
+        assert_eq!(manager.get_timestamp_date(), "YYYY/MM/DD");
+        assert_eq!(manager.get_timestamp_millis(), 1);
+    }
+
+    #[test]
+    fn timestamp_settings_normalize_unknown_values() {
+        let mut manager = SettingsManager::in_memory(&Settings::default());
+        manager.set_timestamp_date("bogus").unwrap();
+        manager.set_timestamp_millis(9).unwrap();
+        assert_eq!(manager.get_timestamp_date(), "YY/MM/DD");
+        assert_eq!(manager.get_timestamp_millis(), 3);
     }
 
     #[test]

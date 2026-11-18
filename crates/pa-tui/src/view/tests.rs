@@ -1750,11 +1750,11 @@ fn the_timestamp_toggle_relayouts_rows_already_on_screen() {
     });
     let plain = transcript_text(&mut view, 80);
     assert!(!plain.contains('['));
-    view.show_timestamps = true;
+    view.timestamp_format.enabled = true;
     let stamped = transcript_text(&mut view, 80);
     assert!(stamped.lines().any(|line| line.starts_with('[')));
     assert!(stamped.contains("hello"));
-    view.show_timestamps = false;
+    view.timestamp_format.enabled = false;
     assert_eq!(transcript_text(&mut view, 80), plain);
 }
 
@@ -1768,10 +1768,42 @@ fn a_durable_time_rides_the_entry_and_narrow_windows_skip_the_prefix() {
         },
         Some(1_794_966_414_224),
     );
-    view.show_timestamps = true;
+    view.timestamp_format.enabled = true;
     let wide = transcript_text(&mut view, 80);
     assert!(wide.contains(".224]"));
-    let narrow = transcript_text(&mut view, crate::transcript_time::PREFIX_WIDTH);
+    let prefix = view.timestamp_format.prefix_width();
+    let narrow = transcript_text(&mut view, prefix);
     assert!(!narrow.contains(".224]"));
     assert!(narrow.contains("restored"));
+}
+
+#[test]
+fn the_timestamp_format_changes_the_prefix_and_body_width() {
+    let mut view = view();
+    view.push_entry_at(
+        ChatEntry::Status {
+            text: "restored".to_string(),
+            kind: crate::chat::StatusKind::Info,
+        },
+        Some(1_794_966_414_224),
+    );
+    let stamp_width = |text: &str| {
+        let line = text
+            .lines()
+            .find(|line| line.starts_with('['))
+            .expect("the entry is stamped");
+        line.find("] ").expect("the stamp closes") + 2
+    };
+    view.timestamp_format = crate::transcript_time::TimestampFormat::new(true, "YYYY/MM/DD", 3);
+    let full = transcript_text(&mut view, 80);
+    assert_eq!(stamp_width(&full), 26);
+    let full_line = full.lines().find(|line| line.starts_with('[')).unwrap();
+    assert!(full_line[..26].contains('/'));
+    view.timestamp_format = crate::transcript_time::TimestampFormat::new(true, "none", 0);
+    let bare = transcript_text(&mut view, 80);
+    assert_eq!(stamp_width(&bare), 11);
+    let bare_line = bare.lines().find(|line| line.starts_with('[')).unwrap();
+    assert!(!bare_line[..11].contains('/'));
+    assert!(!bare_line[..11].contains('.'));
+    assert!(bare.contains("restored"));
 }

@@ -144,6 +144,58 @@ impl SettingsManager {
         self.save_global_scope(&["terminal.showTimestamps"])
     }
 
+    /// `terminal.timestampDate`: the date part of the transcript stamp. The
+    /// display layer owns the values; anything unrecognized reads as the
+    /// shipped `YY/MM/DD` so a hand-edited file cannot blank the date.
+    #[must_use]
+    pub fn get_timestamp_date(&self) -> &'static str {
+        match self
+            .settings()
+            .terminal
+            .as_ref()
+            .and_then(|terminal| terminal.timestamp_date.as_deref())
+        {
+            Some("none") => "none",
+            Some("MM/DD") => "MM/DD",
+            Some("YYYY/MM/DD") => "YYYY/MM/DD",
+            _ => "YY/MM/DD",
+        }
+    }
+
+    /// # Errors
+    ///
+    /// Returns an error when the global settings scope cannot be saved.
+    pub fn set_timestamp_date(&mut self, date: &str) -> Result<()> {
+        self.global_mut()
+            .terminal
+            .get_or_insert_with(Default::default)
+            .timestamp_date = Some(date.to_string());
+        self.save_global_scope(&["terminal.timestampDate"])
+    }
+
+    /// `terminal.timestampMillis`: fractional-second digits, clamped to the
+    /// three the clock carries.
+    #[must_use]
+    pub fn get_timestamp_millis(&self) -> u8 {
+        self.settings()
+            .terminal
+            .as_ref()
+            .and_then(|terminal| terminal.timestamp_millis)
+            .unwrap_or(3)
+            .min(3)
+    }
+
+    /// # Errors
+    ///
+    /// Returns an error when the global settings scope cannot be saved.
+    pub fn set_timestamp_millis(&mut self, millis: u8) -> Result<()> {
+        self.global_mut()
+            .terminal
+            .get_or_insert_with(Default::default)
+            .timestamp_millis = Some(millis.min(3));
+        self.save_global_scope(&["terminal.timestampMillis"])
+    }
+
     /// # Errors
     ///
     /// Returns an error when the global settings scope cannot be saved.

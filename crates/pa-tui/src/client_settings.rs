@@ -83,6 +83,31 @@ pub trait ClientSettings: Send + Sync {
     fn set_show_timestamps(&self, _enabled: bool) -> Result<()> {
         anyhow::bail!("Transcript timestamp settings are unavailable")
     }
+    /// `terminal.timestampDate`: the date part of the transcript timestamp
+    /// (`none`, `MM/DD`, `YY/MM/DD`, or `YYYY/MM/DD`; default `YY/MM/DD`).
+    fn timestamp_date(&self) -> String {
+        "YY/MM/DD".to_string()
+    }
+    /// Persist the transcript timestamp's date part to the global scope.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err` when the settings store fails.
+    fn set_timestamp_date(&self, _date: &str) -> Result<()> {
+        anyhow::bail!("Transcript timestamp settings are unavailable")
+    }
+    /// `terminal.timestampMillis`: fractional-second digits (0-3; default 3).
+    fn timestamp_millis(&self) -> u8 {
+        3
+    }
+    /// Persist the transcript timestamp's fractional-second digits.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err` when the settings store fails.
+    fn set_timestamp_millis(&self, _millis: u8) -> Result<()> {
+        anyhow::bail!("Transcript timestamp settings are unavailable")
+    }
     /// `images.autoResize` (TS default true).
     fn image_auto_resize(&self) -> bool;
     /// Persists `images.autoResize` to the global scope.
