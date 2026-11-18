@@ -113,6 +113,7 @@ pub mod theme;
 pub mod toast;
 pub mod tool_card;
 pub mod traces;
+pub(crate) mod transcript_time;
 pub mod tree_display;
 pub mod tree_list;
 pub mod tree_nodes;

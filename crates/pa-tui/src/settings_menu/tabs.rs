@@ -35,6 +35,7 @@ const TAB_LAYOUT: &[TabLayout] = &[
         ids: &[
             "theme",
             "terminal-progress",
+            "timestamps",
             "clear-on-shrink",
             "show-images",
             "auto-resize-images",

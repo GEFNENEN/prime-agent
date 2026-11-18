@@ -660,6 +660,7 @@ fn an_orphan_result_keeps_its_own_row() {
             content: Vec::new(),
             details: serde_json::Value::Null,
             is_error: false,
+            timestamp_ms: None,
         });
     }
     view.push(crate::session::TranscriptItem::ToolResult {
@@ -669,6 +670,7 @@ fn an_orphan_result_keeps_its_own_row() {
         content: Vec::new(),
         details: serde_json::Value::Null,
         is_error: false,
+        timestamp_ms: None,
     });
     let frame = view.render_frame(80, 30);
     let rendered: Vec<String> = frame
@@ -916,6 +918,7 @@ fn a_replayed_result_into_a_pending_card_folds_its_row_delta() {
         content: Vec::new(),
         details: serde_json::Value::Null,
         is_error: false,
+        timestamp_ms: None,
     });
     view.render_frame(80, 12);
     view.render_frame(80, 12);

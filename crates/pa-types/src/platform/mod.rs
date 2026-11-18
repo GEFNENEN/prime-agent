@@ -5,6 +5,7 @@
 
 pub mod dirs;
 pub mod identity;
+pub mod local_time;
 pub mod process;
 pub mod terminal;
 pub mod transport;
@@ -14,6 +15,7 @@ pub(crate) mod windows_pipe;
 
 pub use dirs::{agent_dir, home_dir};
 pub use identity::socket_identity;
+pub use local_time::{local_time_parts, now_unix_ms};
 pub use process::{
     ignore_sigint_for_suspend, is_process_alive, process_start_id, restore_default_sigint,
     stop_own_process_group,

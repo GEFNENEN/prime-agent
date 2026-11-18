@@ -171,6 +171,13 @@ impl ClientSettings for CliClientSettings {
         bool
     );
     setting!(
+        show_timestamps,
+        set_show_timestamps,
+        get_show_timestamps,
+        set_show_timestamps,
+        bool
+    );
+    setting!(
         image_auto_resize,
         set_image_auto_resize,
         get_image_auto_resize,

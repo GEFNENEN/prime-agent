@@ -1,0 +1,1 @@
+- The transcript now shows a local `yy/mm/dd HH:MM:SS.mmm` timestamp once per message, tool card, and status line instead of on every wrapped row; toggle it under `/settings → Display → Transcript timestamps`.

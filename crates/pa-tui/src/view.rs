@@ -105,6 +105,9 @@ pub struct AgentView {
     pub queued: crate::queued::QueuedMessages,
     pub queue_selected: Option<crate::queued::QueueSelectionItem>,
     pub chat: Vec<ChatEntry>,
+    /// Display-only wall time per chat entry; tools use their result time.
+    pub(crate) entry_timestamps: Vec<Option<u64>>,
+    pub(crate) pending_bash_timestamps: Vec<Option<u64>>,
     /// In-flight bash cards held above the execution indicator while the
     /// agent streams; they flush into the transcript when the turn ends.
     pub pending_bash: Vec<crate::bash_card::BashExecutionCard>,
@@ -120,6 +123,11 @@ pub struct AgentView {
     pub pulse_frame: usize,
     /// When the current working loader started (elapsed label).
     pub working_since: Option<std::time::Instant>,
+    /// Display-only wall time of the current status loaders; seeded on the
+    /// first frame of each run so the stamp stays stable while it spins.
+    pub(crate) working_started_ms: Option<u64>,
+    pub(crate) retry_started_ms: Option<u64>,
+    pub(crate) compaction_started_ms: Option<u64>,
     pub retry: Option<crate::chat::RetryState>,
     /// The one panel that owns the frame while open; `None` is the bare editor dock. One field holds
     /// it, so two panels can never be open at once, and keys, render, paste, mouse and cursor all
@@ -129,6 +137,8 @@ pub struct AgentView {
     /// The `terminal.showImages` setting (default true): image blocks
     /// render metadata rows when set, `[Image: ...]` placeholders otherwise.
     pub show_images: bool,
+    /// One local timestamp prefix per rendered transcript entry.
+    pub show_timestamps: bool,
     /// The `showHardwareCursor` setting (TS default false): frame paints
     /// never drag a visible cursor across the pane.
     pub show_hardware_cursor: bool,
@@ -350,6 +360,8 @@ impl AgentView {
             queued: crate::queued::QueuedMessages::default(),
             queue_selected: None,
             chat: Vec::new(),
+            entry_timestamps: Vec::new(),
+            pending_bash_timestamps: Vec::new(),
             pending_bash: Vec::new(),
             // A chat starts at the collapsed conversation-detail level
             // (operator directive 2026-09-28): only thinking is hidden.
@@ -359,10 +371,14 @@ impl AgentView {
             compaction_generation: 0,
             pulse_frame: 0,
             working_since: None,
+            working_started_ms: None,
+            retry_started_ms: None,
+            compaction_started_ms: None,
             retry: None,
             overlay: None,
             side_pane: None,
             show_images: true,
+            show_timestamps: false,
             show_hardware_cursor: false,
             splash_suppressed: false,
             older_history_loading: false,
@@ -409,10 +425,49 @@ impl AgentView {
     /// Append one chat component (no cached layout yet). A paused window
     /// folds the append into its tail bookkeeping, never a geometry resolve.
     pub fn push_entry(&mut self, entry: ChatEntry) {
+        self.push_entry_at(entry, None);
+    }
+
+    /// A locally created row gets its own arrival time; a reconstructed
+    /// row supplies the durable message's time instead.
+    pub(crate) fn push_entry_at(&mut self, entry: ChatEntry, timestamp_ms: Option<u64>) {
         self.pending_handoff = None;
         self.chat.push(entry);
+        self.entry_timestamps.push(Some(
+            timestamp_ms.unwrap_or_else(crate::transcript_time::now_ms),
+        ));
         self.entry_layout.push([None, None, None]);
         self.sparse_note_append();
+    }
+
+    pub(crate) fn set_entry_timestamp(&mut self, index: usize, timestamp_ms: u64) {
+        if let Some(timestamp) = self.entry_timestamps.get_mut(index) {
+            *timestamp = Some(timestamp_ms);
+            self.mark_entry_stale(index);
+        }
+    }
+
+    /// The display time for one transcript entry: the setting is on and the
+    /// window leaves room for the prefix beside the body.
+    pub(super) fn entry_timestamp(&self, index: usize, width: usize) -> Option<u64> {
+        self.display_timestamp(self.entry_timestamps.get(index).copied().flatten(), width)
+    }
+
+    /// A timestamp that may decorate one rendered block at this width.
+    pub(super) fn display_timestamp(&self, timestamp: Option<u64>, width: usize) -> Option<u64> {
+        if !self.show_timestamps || width <= crate::transcript_time::PREFIX_WIDTH {
+            return None;
+        }
+        timestamp
+    }
+
+    pub(crate) fn push_pending_bash_at(
+        &mut self,
+        card: crate::bash_card::BashExecutionCard,
+        timestamp_ms: u64,
+    ) {
+        self.pending_bash.push(card);
+        self.pending_bash_timestamps.push(Some(timestamp_ms));
     }
 
     pub fn chat_len(&self) -> usize {
@@ -435,6 +490,7 @@ impl AgentView {
         self.inbox_run_heads.get_mut().truncate(index);
         self.entry_heights.pop();
         self.entry_layout.pop();
+        self.entry_timestamps.pop();
         self.chat.pop()
     }
 
@@ -463,6 +519,11 @@ impl AgentView {
     /// Append a replay transcript item (mapped onto chat components). A
     /// tool result completes the pending tool card with the same id.
     pub fn push(&mut self, item: TranscriptItem) {
+        let item_timestamp = match &item {
+            TranscriptItem::ToolResult { timestamp_ms, .. }
+            | TranscriptItem::BashExecution { timestamp_ms, .. } => *timestamp_ms,
+            _ => None,
+        };
         if let TranscriptItem::ToolResult {
             tool_call_id,
             tool_name,
@@ -470,6 +531,7 @@ impl AgentView {
             content,
             details,
             is_error,
+            timestamp_ms,
         } = &item
         {
             let pending = self.chat.iter().rposition(|entry| {
@@ -497,7 +559,11 @@ impl AgentView {
                     });
                     card.result_partial = false;
                 }
-                self.mark_entry_stale(index);
+                if let Some(timestamp_ms) = *timestamp_ms {
+                    self.set_entry_timestamp(index, timestamp_ms);
+                } else {
+                    self.mark_entry_stale(index);
+                }
                 return;
             }
             let view = crate::chat::ToolResultView {
@@ -509,14 +575,17 @@ impl AgentView {
                 details: details.clone(),
                 is_error: *is_error,
             };
-            self.push_entry(ChatEntry::Tool(Box::new(crate::chat::ToolCallCard {
-                id: tool_call_id.clone(),
-                name: tool_name.clone(),
-                args: serde_json::Value::Null,
-                started: true,
-                result: Some(view),
-                ..Default::default()
-            })));
+            self.push_entry_at(
+                ChatEntry::Tool(Box::new(crate::chat::ToolCallCard {
+                    id: tool_call_id.clone(),
+                    name: tool_name.clone(),
+                    args: serde_json::Value::Null,
+                    started: true,
+                    result: Some(view),
+                    ..Default::default()
+                })),
+                *timestamp_ms,
+            );
             return;
         }
         let mut entry = item_to_entry(item);
@@ -526,10 +595,20 @@ impl AgentView {
                 Some(ChatEntry::AgentMessage(_) | ChatEntry::InboxNotice(_))
             );
         }
-        self.push_entry(entry);
+        self.push_entry_at(entry, item_timestamp);
     }
 
     pub fn prepend_entries(&mut self, entries: Vec<ChatEntry>) {
+        self.prepend_entries_at(entries, Vec::new());
+    }
+
+    /// [`Self::prepend_entries`] with the durable display times that ride
+    /// alongside a reconstructed page.
+    pub(crate) fn prepend_entries_at(
+        &mut self,
+        entries: Vec<ChatEntry>,
+        timestamps: Vec<Option<u64>>,
+    ) {
         let count = entries.len();
         if count == 0 {
             return;
@@ -542,13 +621,24 @@ impl AgentView {
         };
         self.reanchor_paused_window_for_prepend();
         let cursor_spacing_before = self.prepend_cursor_spacing(0);
-        self.splice_chat(0..0, entries);
+        self.splice_chat_at(0..0, entries, timestamps);
         self.note_prepended_entries(count, seam_before, cursor_spacing_before);
     }
 
     /// Replace `range`, which lies below the viewport, with `entries`: a paused
     /// viewport keeps its rows.
     pub fn replace_entries(&mut self, range: std::ops::Range<usize>, entries: Vec<ChatEntry>) {
+        self.replace_entries_at(range, entries, Vec::new());
+    }
+
+    /// [`Self::replace_entries`] with the durable display times of a
+    /// reconstructed page.
+    pub(crate) fn replace_entries_at(
+        &mut self,
+        range: std::ops::Range<usize>,
+        entries: Vec<ChatEntry>,
+        timestamps: Vec<Option<u64>>,
+    ) {
         self.pending_handoff = None;
         let width = self.layout_width;
         // The entry after the range re-measures too: its spacing follows its neighbor.
@@ -565,7 +655,7 @@ impl AgentView {
         };
         let start = range.start;
         let inserted = entries.len();
-        self.splice_chat(range, entries);
+        self.splice_chat_at(range, entries, timestamps);
         if width > 0 {
             let after = rows(self, start, start + inserted + follower);
             self.sparse_tail_delta(after as isize - before as isize, start);
@@ -586,8 +676,19 @@ impl AgentView {
 
     /// Splice the chat and every per-entry cache keyed by its index.
     fn splice_chat(&mut self, range: std::ops::Range<usize>, entries: Vec<ChatEntry>) {
+        self.splice_chat_at(range, entries, Vec::new());
+    }
+
+    pub(crate) fn splice_chat_at(
+        &mut self,
+        range: std::ops::Range<usize>,
+        entries: Vec<ChatEntry>,
+        mut timestamps: Vec<Option<u64>>,
+    ) {
         let inserted = entries.len();
         let removed = range.len();
+        timestamps.resize(inserted, None);
+        timestamps.truncate(inserted);
         let shift = |index: usize| -> Option<usize> {
             if index < range.start {
                 Some(index)
@@ -637,7 +738,13 @@ impl AgentView {
             std::iter::repeat_n([None, None, None], inserted),
         );
         self.inbox_run_heads.get_mut().truncate(range.start);
-        self.chat.splice(range, entries);
+        self.chat.splice(range.clone(), entries);
+        self.entry_timestamps.splice(
+            range,
+            timestamps
+                .into_iter()
+                .map(|timestamp| Some(timestamp.unwrap_or_else(crate::transcript_time::now_ms))),
+        );
         self.follow_inbox_run_heads();
     }
 
@@ -661,10 +768,12 @@ impl AgentView {
         self.inbox_run_heads.get_mut().clear();
         self.sparse_window = None;
         self.chat.clear();
+        self.entry_timestamps.clear();
         self.entry_layout.clear();
         self.entry_heights.clear();
         self.md_caches.borrow_mut().clear();
         self.pending_bash.clear();
+        self.pending_bash_timestamps.clear();
         self.older_history_loading = false;
     }
 
@@ -836,6 +945,7 @@ fn item_to_entry(item: TranscriptItem) -> ChatEntry {
             content,
             details,
             is_error,
+            timestamp_ms: _,
         } => ChatEntry::Tool(Box::new(crate::chat::ToolCallCard {
             id: tool_call_id,
             name: tool_name,
@@ -860,6 +970,7 @@ fn item_to_entry(item: TranscriptItem) -> ChatEntry {
             truncated,
             full_output_path,
             excluded,
+            timestamp_ms: _,
         } => {
             // The same component the live events render, completed over
             // the recorded output.

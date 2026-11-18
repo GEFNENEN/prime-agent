@@ -258,6 +258,7 @@ async fn run_interactive_surface(
     );
     if let Some(settings) = &options.client_settings {
         view.show_hardware_cursor = settings.show_hardware_cursor();
+        view.show_timestamps = settings.show_timestamps();
         // A chat opens at the persisted `chatDetail` level; an unset store reads as the collapsed
         // `overview` startup level (operator directive 2026-09-28).
         view.detail = crate::chat::Detail::from_wire_name(&settings.chat_detail());

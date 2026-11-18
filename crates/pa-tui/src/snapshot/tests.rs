@@ -1728,6 +1728,31 @@ fn push_message_completes_pending_tool_card() {
         result.content,
         vec![json!({ "type": "text", "text": "out" })]
     );
+    assert_eq!(reconstructed.timestamps, vec![Some(3)]);
+}
+
+#[test]
+fn replayed_entries_carry_message_and_tool_result_times() {
+    let (chat, timestamps, _) = transcript_with_backfill_seam_and_times(&[
+        json!({"role": "user", "content": "run", "timestamp": 10}),
+        json!({
+            "role": "assistant",
+            "content": [
+                { "type": "toolCall", "id": "call-1", "name": "bash", "arguments": {} },
+            ],
+            "stopReason": "toolUse",
+            "timestamp": 20,
+        }),
+        json!({
+            "role": "toolResult",
+            "toolCallId": "call-1",
+            "toolName": "bash",
+            "content": [{ "type": "text", "text": "done" }],
+            "timestamp": 30,
+        }),
+    ]);
+    assert_eq!(chat.len(), 2);
+    assert_eq!(timestamps, vec![Some(10), Some(30)]);
 }
 
 /// One component per assistant message, even a content-less failure.
