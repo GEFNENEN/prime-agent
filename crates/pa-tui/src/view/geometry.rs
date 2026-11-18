@@ -11,6 +11,10 @@ impl AgentView {
         let preceded_by_tool = index > 0 && Self::is_compact_neighbor(&self.chat[index - 1]);
         let spacing = self.entry_spacing(index, entry, index == 0, preceded_by_tool);
         let detail = self.entry_detail(index);
+        let width = width.saturating_sub(
+            self.entry_timestamp(index, width)
+                .map_or(0, |_| crate::transcript_time::PREFIX_WIDTH),
+        );
         match entry {
             ChatEntry::Status { text, .. } => {
                 1 + if text.trim().is_empty() {
@@ -393,10 +397,12 @@ mod tests {
             indent in prop::sample::select(vec!["", "  "]),
             color in prop::sample::select(vec![ColorMode::TrueColor, ColorMode::Color256]),
             show_images in any::<bool>(),
+            show_timestamps in any::<bool>(),
         ) {
             let mut view = AgentView::new(Theme::builtin("prime", color));
             view.detail = detail;
             view.show_images = show_images;
+            view.show_timestamps = show_timestamps;
             indent.clone_into(&mut view.code_block_indent);
             for entry in entries {
                 view.push_entry(entry);

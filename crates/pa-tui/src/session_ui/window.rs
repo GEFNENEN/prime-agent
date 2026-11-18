@@ -41,6 +41,7 @@ pub(crate) struct TranscriptPageNote {
 
 pub(crate) struct LoadedPage {
     entries: Vec<ChatEntry>,
+    timestamps: Vec<Option<u64>>,
     seam: BackfillSeam,
     first_id: Option<String>,
     last_id: Option<String>,
@@ -206,9 +207,11 @@ impl TranscriptWindow {
             return 0;
         };
         let mut entries = page.entries;
+        let mut timestamps = page.timestamps;
         // A page that reaches the tail joins it, as an older page joins what lies below.
         if kind != PageKind::Older && !page.more {
             crate::snapshot::join_backfilled_entries(&mut entries, self.tail_seam);
+            timestamps.truncate(entries.len());
         }
         let chunk = |entries: usize| Chunk {
             first_id,
@@ -221,8 +224,9 @@ impl TranscriptWindow {
             PageKind::Older => {
                 let top_seam = self.chunks.front().map_or(self.tail_seam, |top| top.seam);
                 crate::snapshot::join_backfilled_entries(&mut entries, top_seam);
+                timestamps.truncate(entries.len());
                 let count = entries.len();
-                view.prepend_entries(entries);
+                view.prepend_entries_at(entries, timestamps);
                 self.chunks.push_front(chunk(count));
                 self.start_resident = !page.more;
                 let mut grown = count as isize;
@@ -247,8 +251,9 @@ impl TranscriptWindow {
                 let count = entries.len();
                 if page.more {
                     entries.push(gap_row());
+                    timestamps.push(None);
                 }
-                view.replace_entries(at - superseded..at + 1, entries);
+                view.replace_entries_at(at - superseded..at + 1, entries, timestamps);
                 self.chunks.push_back(chunk(count));
                 self.gap = page.more;
                 let mut grown = count as isize - isize::from(!page.more) - superseded as isize;
@@ -265,10 +270,11 @@ impl TranscriptWindow {
                 let count = entries.len();
                 if page.more {
                     entries.push(gap_row());
+                    timestamps.push(None);
                 }
                 let inserted = entries.len();
                 view.drop_leading_entries(replaced);
-                view.prepend_entries(entries);
+                view.prepend_entries_at(entries, timestamps);
                 view.scroll_to_top();
                 self.chunks = VecDeque::from([chunk(count)]);
                 self.gap = page.more;
@@ -363,15 +369,18 @@ impl TranscriptWindow {
         };
         let joins = joins_tail.is_some() && joins_tail == self.tail_first_id.as_deref();
         let mut entries = loaded.entries;
+        let mut timestamps = loaded.timestamps;
         if joins {
             crate::snapshot::join_backfilled_entries(&mut entries, self.tail_seam);
+            timestamps.truncate(entries.len());
         }
         let count = entries.len();
         if !joins {
             entries.push(gap_row());
+            timestamps.push(None);
         }
         let inserted = entries.len();
-        view.prepend_entries(entries);
+        view.prepend_entries_at(entries, timestamps);
         self.chunks = VecDeque::from([Chunk {
             first_id,
             last_id,
@@ -640,8 +649,10 @@ impl SessionUi {
         self.window
             .reset(leaf_id, page.first_id.filter(|_| page.more), page.seam);
         view.clear_chat();
-        for entry in page.entries {
-            view.push_entry(entry);
+        let mut timestamps = page.timestamps;
+        timestamps.resize(page.entries.len(), None);
+        for (entry, timestamp) in page.entries.into_iter().zip(timestamps) {
+            view.push_entry_at(entry, timestamp);
         }
         self.restore_reader(anchor, anchor_page, view);
     }
@@ -683,12 +694,13 @@ async fn parse_page(mut data: Value) -> Result<LoadedPage> {
     let id = |key: &str| data.get(key).and_then(Value::as_str).map(str::to_owned);
     let (first_id, last_id) = (id("firstEntryId"), id("lastEntryId"));
     let more = data.get("more").and_then(Value::as_bool).unwrap_or(false);
-    let (entries, seam) = tokio::task::spawn_blocking(move || {
-        crate::snapshot::transcript_with_backfill_seam(&messages)
+    let (entries, timestamps, seam) = tokio::task::spawn_blocking(move || {
+        crate::snapshot::transcript_with_backfill_seam_and_times(&messages)
     })
     .await?;
     Ok(LoadedPage {
         entries,
+        timestamps,
         seam,
         first_id,
         last_id,
@@ -789,6 +801,7 @@ mod tests {
                     entries: crate::snapshot::transcript_to_entries(&[
                         json!({"role": "user", "content": "stale history", "timestamp": 0}),
                     ]),
+                    timestamps: Vec::new(),
                     seam: BackfillSeam::Preserve,
                     first_id: Some("e0".to_string()),
                     last_id: Some("e0".to_string()),
@@ -829,6 +842,7 @@ mod tests {
         ));
         let empty = LoadedPage {
             entries: Vec::new(),
+            timestamps: Vec::new(),
             seam: BackfillSeam::Preserve,
             first_id: None,
             last_id: None,
@@ -872,10 +886,11 @@ mod tests {
             "role": "assistant", "content": [], "stopReason": "error",
             "errorMessage": "attempt failed", "timestamp": 2,
         });
-        let (entries, seam) = crate::snapshot::transcript_with_backfill_seam(&[
-            json!({"role": "user", "content": "run", "timestamp": 1}),
-            attempt,
-        ]);
+        let (entries, timestamps, seam) =
+            crate::snapshot::transcript_with_backfill_seam_and_times(&[
+                json!({"role": "user", "content": "run", "timestamp": 1}),
+                attempt,
+            ]);
         let mut window = TranscriptWindow::default();
         window.reset(
             Some("leaf".to_string()),
@@ -888,6 +903,7 @@ mod tests {
         ));
         let page = LoadedPage {
             entries,
+            timestamps,
             seam,
             first_id: Some("e0".to_string()),
             last_id: Some("e1".to_string()),
@@ -924,9 +940,11 @@ mod tests {
             "role": "assistant", "content": [{"type": "text", "text": "done"}], "timestamp": 4,
         });
         let page = |messages: &[Value], first: &str, last: &str| {
-            let (entries, seam) = crate::snapshot::transcript_with_backfill_seam(messages);
+            let (entries, timestamps, seam) =
+                crate::snapshot::transcript_with_backfill_seam_and_times(messages);
             LoadedPage {
                 entries,
+                timestamps,
                 seam,
                 first_id: Some(first.to_string()),
                 last_id: Some(last.to_string()),
@@ -1009,6 +1027,7 @@ mod tests {
             }
             let page = LoadedPage {
                 entries: entries("older"),
+                timestamps: Vec::new(),
                 seam: BackfillSeam::Preserve,
                 first_id: Some("o0".to_string()),
                 last_id: Some("o29".to_string()),

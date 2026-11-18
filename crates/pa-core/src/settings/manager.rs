@@ -1208,6 +1208,19 @@ mod tests {
     }
 
     #[test]
+    fn transcript_timestamps_round_trip_through_the_global_scope() {
+        let mut manager = SettingsManager::in_memory(&Settings::default());
+        assert!(!manager.get_show_timestamps(), "unset means off");
+        manager.set_show_timestamps(true).unwrap();
+        assert!(manager.get_show_timestamps());
+        manager.reload().unwrap();
+        assert!(
+            manager.get_show_timestamps(),
+            "the global scope persists it"
+        );
+    }
+
+    #[test]
     fn in_memory_loads_merges_and_saves() {
         let mut manager = SettingsManager::in_memory(&Settings::default());
         manager

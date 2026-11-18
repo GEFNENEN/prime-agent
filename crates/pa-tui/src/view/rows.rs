@@ -101,7 +101,10 @@ impl AgentView {
         #[cfg(test)]
         layout::ENTRY_RENDERS.with(|count| count.set(count.get() + 1));
         let detail = self.entry_detail(index);
-        match entry {
+        let timestamp = self.entry_timestamp(index, width);
+        let width =
+            width.saturating_sub(timestamp.map_or(0, |_| crate::transcript_time::PREFIX_WIDTH));
+        let mut rows = match entry {
             ChatEntry::Status { text, kind } => {
                 let style = match kind {
                     crate::chat::StatusKind::Info => self.theme.fg_style(ThemeColor::Dim),
@@ -282,6 +285,14 @@ impl AgentView {
             ChatEntry::CustomPanel(row) => {
                 crate::custom_message::render::render_custom_panel(row, &self.theme, width)
             }
+        };
+        if timestamp.is_some() {
+            crate::transcript_time::decorate(
+                &mut rows,
+                timestamp,
+                self.theme.fg_style(ThemeColor::Muted),
+            );
         }
+        rows
     }
 }

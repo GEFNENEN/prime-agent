@@ -40,6 +40,9 @@ pub struct AttachClient {
 #[derive(Debug, Clone, Default)]
 pub struct Reconstructed {
     pub chat: Vec<ChatEntry>,
+    /// Parallel display-only timestamps for `chat` (durable message time or
+    /// tool-result time; locally minted rows use their arrival instant).
+    pub timestamps: Vec<Option<u64>>,
     /// Current model id (`state.model.id`), when the session reports one.
     pub model_id: Option<String>,
     /// The model's configured display name (`models.json` `name`), when the
@@ -93,7 +96,12 @@ impl Reconstructed {
     /// completes a pending card adds no row; an unmatched one keeps its
     /// standalone orphan card.
     pub fn push_message(&mut self, message: &Value) {
+        let timestamp_ms = message_timestamp_ms(message);
         if let Some(result) = tool_result_message_view(message) {
+            let tool_call_id = result.tool_call_id.clone();
+            let pending = self.chat.iter().position(|entry| {
+                matches!(entry, ChatEntry::Tool(card) if card.id == tool_call_id && card.result.is_none())
+            });
             if let Some(view) = apply_tool_result(&mut self.chat, result) {
                 self.chat
                     .push(ChatEntry::Tool(Box::new(crate::chat::ToolCallCard {
@@ -104,10 +112,16 @@ impl Reconstructed {
                         result: Some(view.view),
                         ..Default::default()
                     })));
+                self.timestamps.push(timestamp_ms);
+            } else if let Some(index) = pending {
+                if let Some(slot) = self.timestamps.get_mut(index) {
+                    *slot = timestamp_ms;
+                }
             }
             return;
         }
         self.chat.extend(message_value_to_entries(message));
+        self.timestamps.resize(self.chat.len(), timestamp_ms);
     }
 }
 
@@ -206,21 +220,35 @@ pub(crate) enum BackfillSeam {
 }
 
 pub(crate) fn transcript_with_backfill_seam(messages: &[Value]) -> (Vec<ChatEntry>, BackfillSeam) {
+    let (chat, _, seam) = transcript_with_backfill_seam_and_times(messages);
+    (chat, seam)
+}
+
+pub(crate) fn transcript_with_backfill_seam_and_times(
+    messages: &[Value],
+) -> (Vec<ChatEntry>, Vec<Option<u64>>, BackfillSeam) {
     let mut seam = BackfillSeam::Preserve;
     let mut chat: Vec<ChatEntry> = Vec::new();
+    let mut timestamps: Vec<Option<u64>> = Vec::new();
     let mut card_index: HashMap<String, Vec<usize>> = HashMap::new();
     for message in messages {
         if let Some(result) = tool_result_message_view(message) {
             let tool_call_id = result.tool_call_id.clone();
-            if let Some(result) = settle_last_pending(
-                &mut chat,
-                card_index.get(&tool_call_id).map(Vec::as_slice),
-                result,
-            ) {
+            let timestamp_ms = message_timestamp_ms(message);
+            let indices = card_index.get(&tool_call_id).map(Vec::as_slice);
+            let pending = indices.and_then(|indices| {
+                indices.iter().rev().copied().find(
+                    |&index| matches!(chat.get(index), Some(ChatEntry::Tool(card)) if card.result.is_none()),
+                )
+            });
+            if let Some(result) = settle_last_pending(&mut chat, indices, result) {
                 // No pending card took the result (a true orphan or a
                 // leftover settle): it keeps a standalone card at its
                 // own wire position, like the live path.
                 chat.push(orphan_card(result));
+                timestamps.push(timestamp_ms);
+            } else if let Some(index) = pending {
+                timestamps[index] = timestamp_ms;
             }
             continue;
         }
@@ -233,6 +261,7 @@ pub(crate) fn transcript_with_backfill_seam(messages: &[Value]) -> (Vec<ChatEntr
                 == Some(crate::custom_message::PROVIDER_RETRY_OUTCOME_CUSTOM_TYPE)
         {
             pop_superseded_attempts(&mut chat);
+            timestamps.truncate(chat.len());
             if chat.is_empty() {
                 // This outcome also supersedes attempts in the omitted prefix.
                 seam = BackfillSeam::RetryOutcome;
@@ -240,6 +269,8 @@ pub(crate) fn transcript_with_backfill_seam(messages: &[Value]) -> (Vec<ChatEntr
         }
         let first_new = chat.len();
         chat.extend(message_value_to_entries(message));
+        let timestamp_ms = message_timestamp_ms(message);
+        timestamps.resize(chat.len(), timestamp_ms);
         for (offset, entry) in chat[first_new..].iter().enumerate() {
             if let ChatEntry::Tool(card) = entry {
                 card_index
@@ -249,7 +280,7 @@ pub(crate) fn transcript_with_backfill_seam(messages: &[Value]) -> (Vec<ChatEntr
             }
         }
     }
-    (chat, seam)
+    (chat, timestamps, seam)
 }
 
 /// Settle one result onto the LAST pending card among `indices` (the
@@ -326,10 +357,10 @@ pub(crate) fn join_backfilled_entries(head: &mut Vec<ChatEntry>, seam: BackfillS
 
 pub fn reconstruct(attach: &AttachData) -> Reconstructed {
     let snapshot = &attach.snapshot;
-    let (messages, backfill_seam) = snapshot
+    let (messages, timestamps, backfill_seam) = snapshot
         .get("messages")
         .and_then(Value::as_array)
-        .map(|messages| transcript_with_backfill_seam(messages))
+        .map(|messages| transcript_with_backfill_seam_and_times(messages))
         .unwrap_or_default();
     let state = snapshot.get("state");
     let (model_id, model_provider) = state
@@ -425,6 +456,7 @@ pub fn reconstruct(attach: &AttachData) -> Reconstructed {
         });
     Reconstructed {
         chat: messages,
+        timestamps,
         model_id,
         model_name,
         model_provider,

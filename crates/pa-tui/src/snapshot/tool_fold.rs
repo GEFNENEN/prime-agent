@@ -75,7 +75,7 @@ pub fn settle_pending_tool_cards<S: std::hash::BuildHasher + Default>(
                 card.result_partial = false;
                 card.ended_at = Some(std::time::Instant::now());
                 card.aborted = true;
-                view.mark_entry_stale(index);
+                view.set_entry_timestamp(index, crate::transcript_time::now_ms());
             }
         }
     }

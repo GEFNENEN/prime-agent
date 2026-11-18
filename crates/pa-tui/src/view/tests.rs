@@ -1740,3 +1740,38 @@ fn settled_rows_survive_a_cache_roundtrip() {
         "a fresh view renders the same rows (the Took clock may move)"
     );
 }
+
+#[test]
+fn the_timestamp_toggle_relayouts_rows_already_on_screen() {
+    let mut view = view();
+    view.push_entry(ChatEntry::Status {
+        text: "hello".to_string(),
+        kind: crate::chat::StatusKind::Info,
+    });
+    let plain = transcript_text(&mut view, 80);
+    assert!(!plain.contains('['));
+    view.show_timestamps = true;
+    let stamped = transcript_text(&mut view, 80);
+    assert!(stamped.lines().any(|line| line.starts_with('[')));
+    assert!(stamped.contains("hello"));
+    view.show_timestamps = false;
+    assert_eq!(transcript_text(&mut view, 80), plain);
+}
+
+#[test]
+fn a_durable_time_rides_the_entry_and_narrow_windows_skip_the_prefix() {
+    let mut view = view();
+    view.push_entry_at(
+        ChatEntry::Status {
+            text: "restored".to_string(),
+            kind: crate::chat::StatusKind::Info,
+        },
+        Some(1_794_966_414_224),
+    );
+    view.show_timestamps = true;
+    let wide = transcript_text(&mut view, 80);
+    assert!(wide.contains(".224]"));
+    let narrow = transcript_text(&mut view, crate::transcript_time::PREFIX_WIDTH);
+    assert!(!narrow.contains(".224]"));
+    assert!(narrow.contains("restored"));
+}

@@ -70,6 +70,19 @@ pub trait ClientSettings: Send + Sync {
     ///
     /// Returns `Err` when the settings store fails.
     fn set_show_terminal_progress(&self, enabled: bool) -> Result<()>;
+    /// `terminal.showTimestamps` (default false): one local-time prefix
+    /// per transcript entry, not per wrapped physical row.
+    fn show_timestamps(&self) -> bool {
+        false
+    }
+    /// Persist the transcript timestamp display to the global scope.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err` when the settings store fails.
+    fn set_show_timestamps(&self, _enabled: bool) -> Result<()> {
+        anyhow::bail!("Transcript timestamp settings are unavailable")
+    }
     /// `images.autoResize` (TS default true).
     fn image_auto_resize(&self) -> bool;
     /// Persists `images.autoResize` to the global scope.

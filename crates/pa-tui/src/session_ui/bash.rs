@@ -475,7 +475,7 @@ impl SessionUi {
             crate::bash_card::BashExecutionCard::new_running(&id, command, exclude_from_context);
         card.suppress_leading_space = matches!(view.chat.last(), Some(ChatEntry::AgentMessage(_)));
         if self.turn_active {
-            view.pending_bash.push(card);
+            view.push_pending_bash_at(card, crate::transcript_time::now_ms());
         } else {
             view.push_entry(ChatEntry::BashExecution(Box::new(card)));
         }
@@ -630,8 +630,10 @@ impl SessionUi {
     /// streamed settle into the transcript.
     pub(super) fn flush_pending_bash(view: &mut AgentView) {
         let pending = std::mem::take(&mut view.pending_bash);
-        for card in pending {
-            view.push_entry(ChatEntry::BashExecution(Box::new(card)));
+        let mut timestamps = std::mem::take(&mut view.pending_bash_timestamps);
+        timestamps.resize(pending.len(), None);
+        for (card, timestamp) in pending.into_iter().zip(timestamps) {
+            view.push_entry_at(ChatEntry::BashExecution(Box::new(card)), timestamp);
         }
     }
 

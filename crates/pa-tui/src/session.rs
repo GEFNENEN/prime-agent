@@ -37,6 +37,7 @@ pub enum TranscriptItem {
         /// cells render their structured output like live ones.
         details: serde_json::Value,
         is_error: bool,
+        timestamp_ms: Option<u64>,
     },
     BashExecution {
         command: String,
@@ -46,6 +47,8 @@ pub enum TranscriptItem {
         truncated: bool,
         full_output_path: Option<String>,
         excluded: bool,
+        /// The persisted bash message's wall-clock time, when it has one.
+        timestamp_ms: Option<u64>,
     },
     ModelChange {
         provider: String,
@@ -244,6 +247,7 @@ fn message_to_items(message: &AgentMessage) -> Vec<TranscriptItem> {
                 .collect(),
             details: t.details.clone().unwrap_or(serde_json::Value::Null),
             is_error: t.is_error,
+            timestamp_ms: Some(t.timestamp),
         }],
         AgentMessage::BashExecution(b) => vec![TranscriptItem::BashExecution {
             command: b.command.clone(),
@@ -253,6 +257,7 @@ fn message_to_items(message: &AgentMessage) -> Vec<TranscriptItem> {
             truncated: b.truncated,
             full_output_path: b.full_output_path.clone(),
             excluded: b.exclude_from_context.unwrap_or(false),
+            timestamp_ms: Some(b.timestamp),
         }],
 
         _ => Vec::new(),

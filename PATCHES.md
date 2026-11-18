@@ -69,6 +69,8 @@
 | 37 | `28a6c8f6d` | feat | MCP 调用默认超时：全局设置 `mcpCallTimeoutMs`，server 自带的 `callTimeoutMs` 优先 |
 | 38 | `32428f5fc` | feat | MCP stdio 的 `env` 支持字面值（`{"value": ...}` 与 `--env-value CHILD=VALUE`） |
 | 39 | `71baee496` | fix | `python_repl` 的 per-call 超时上限跟随会话的 `pythonCellTimeoutMs` |
+| 40 | `a762ce8bb` | feat | 恢复 Hindsight 记忆（隐藏 hook，见 `docs/hindsight-hook.md`） |
+| 41 | （未提交） | feat | TUI transcript 按条显示本地时间戳，`/settings → Display` 可开关（`terminal.showTimestamps`，默认关） |
 
 表格按**行为补丁**计数，所以行数与提交数**不相等**：同一个补丁的后续收尾提交
 （对已入表补丁的修正、重构、补测试）并入该行的摘要，不另开一行——表末那条就是
@@ -106,6 +108,8 @@ rebase 修复、收尾提交、行尾修复逐项对照；任何一侧新增提�
 | `custom.37` | 顶栏改成「会话名 (会话目录, 终端 cwd)」，无名会话显示 `unnamed`，两个目录不一致时 cwd 标红（补丁 1 收尾 `7ffa578c5`） |
 | `custom.38` | 同步上游到 `v0.10.3`（`d649b93cf`，8 个提交）。基线版本从 `0.10.3-beta.5` 变成 `0.10.3`，所以后缀直接是 `0.10.3+custom.38`；二进制内容变了，所以升号 |
 | `custom.39` | 同步上游到 `upstream/main` `0bce1417b`（43 个提交）：private-auth 路径被上游 #4044 删除、agents view 列宽交给 #4036、`[profile.dev]` 与上游 #3873 合并。二进制内容变了，所以升号 |
+| `custom.40` | 恢复 Hindsight 记忆（隐藏 hook）。二进制内容变了，所以升号 |
+| `custom.41` | TUI transcript 按条显示本地时间戳（`terminal.showTimestamps`，默认关）。二进制内容变了，所以升号 |
 
 stamp 提交写于哪个基线，rebase 后正文里的版本号可能与实际写入的不一致；那种提交
 正文不追改（改写历史只为一个字符串不值当）。唯一例外是**标题行**：`v0.10.3` 那次

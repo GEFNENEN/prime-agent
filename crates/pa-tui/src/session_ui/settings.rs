@@ -239,6 +239,7 @@ impl SessionUi {
             values.autocomplete_max_visible = settings.autocomplete_max_visible();
             values.clear_on_shrink = settings.clear_on_shrink();
             values.terminal_progress = settings.show_terminal_progress();
+            values.timestamps = settings.show_timestamps();
             values.idle_eviction_minutes = settings.idle_eviction_minutes();
             values.mermaid = settings.mermaid_rendering_mode();
             values.quiet_startup = settings.quiet_startup();
@@ -461,6 +462,15 @@ impl SessionUi {
                     value,
                     view,
                 );
+            }
+            "timestamps" => {
+                if let Some(settings) = &self.client_settings {
+                    if let Err(error) = settings.set_show_timestamps(value == "true") {
+                        self.error_row(&format!("{error:#}"), view);
+                        return;
+                    }
+                }
+                view.show_timestamps = value == "true";
             }
             "idle-eviction-minutes" => {
                 if let Some(settings) = &self.client_settings {

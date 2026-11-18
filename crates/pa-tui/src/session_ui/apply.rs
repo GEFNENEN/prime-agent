@@ -1022,12 +1022,14 @@ impl SessionUi {
                 }
                 card.result = Some(result);
                 card.result_partial = partial;
-                if !partial {
+                if partial {
+                    view.mark_entry_stale(index);
+                } else {
                     card.ended_at = Some(std::time::Instant::now());
                     self.pending_tools.remove(tool_call_id);
                     self.track_ipython_bash_rendered(card);
+                    view.set_entry_timestamp(index, crate::transcript_time::now_ms());
                 }
-                view.mark_entry_stale(index);
                 return true;
             }
         }

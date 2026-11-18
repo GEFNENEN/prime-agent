@@ -234,6 +234,7 @@ pub(crate) struct SessionUi {
     catalog_updates: mpsc::UnboundedSender<ModelCatalogUpdate>,
     heartbeat_updates: mpsc::UnboundedSender<HeartbeatsUpdate>,
     pending_snapshot: Option<Vec<ChatEntry>>,
+    pending_snapshot_timestamps: Vec<Option<u64>>,
     /// One-shot: free the heap of the first frame rendered after an attach fold — the
     /// frame's visible-window materialization is its own, bigger transient.
     trim_after_frame: bool,

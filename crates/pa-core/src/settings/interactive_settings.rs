@@ -123,6 +123,27 @@ impl SettingsManager {
         self.save_global_scope(&["terminal.showTerminalProgress"])
     }
 
+    /// `terminal.showTimestamps`: unset means the transcript stays undecorated.
+    #[must_use]
+    pub fn get_show_timestamps(&self) -> bool {
+        self.settings()
+            .terminal
+            .as_ref()
+            .and_then(|terminal| terminal.show_timestamps)
+            .unwrap_or(false)
+    }
+
+    /// # Errors
+    ///
+    /// Returns an error when the global settings scope cannot be saved.
+    pub fn set_show_timestamps(&mut self, enabled: bool) -> Result<()> {
+        self.global_mut()
+            .terminal
+            .get_or_insert_with(Default::default)
+            .show_timestamps = Some(enabled);
+        self.save_global_scope(&["terminal.showTimestamps"])
+    }
+
     /// # Errors
     ///
     /// Returns an error when the global settings scope cannot be saved.

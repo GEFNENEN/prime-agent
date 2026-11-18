@@ -109,6 +109,7 @@ impl SessionUi {
             pasted_images: BTreeMap::default(),
             next_image_marker_id: 1,
             pending_snapshot: None,
+            pending_snapshot_timestamps: Vec::new(),
             trim_after_frame: false,
             pending_model: None,
             pending_model_name: None,
@@ -505,6 +506,7 @@ impl SessionUi {
         self.last_assistant_text = last_assistant_text_of(&reconstructed.chat);
         self.pending_queue = Some(reconstructed.queued);
         self.pending_snapshot = Some(reconstructed.chat);
+        self.pending_snapshot_timestamps = reconstructed.timestamps;
         self.loader_anchor_ms = reconstructed.last_user_prompt_ms;
         self.goal_view.seed(reconstructed.goal.unwrap_or_default());
         self.settled = None;
@@ -566,14 +568,20 @@ impl SessionUi {
 
     /// The one transcript replacement: clear the chat, render the entries,
     /// and re-register decoded pending tool cards.
-    pub(crate) fn replace_transcript(&mut self, entries: Vec<ChatEntry>, view: &mut AgentView) {
+    pub(crate) fn replace_transcript_at(
+        &mut self,
+        entries: Vec<ChatEntry>,
+        mut timestamps: Vec<Option<u64>>,
+        view: &mut AgentView,
+    ) {
         view.clear_chat();
         self.last_status_index = None;
         self.pressed_click = None;
         self.pending_tools.clear();
         self.aborted_tools.clear();
-        for entry in entries {
-            view.push_entry(entry);
+        timestamps.resize(entries.len(), None);
+        for (entry, timestamp) in entries.into_iter().zip(timestamps) {
+            view.push_entry_at(entry, timestamp);
         }
         for entry in &view.chat {
             if let ChatEntry::Tool(card) = entry {
@@ -591,7 +599,12 @@ impl SessionUi {
         // The held cards' fate diverges by rebuild: a rebind drops them with the
         // old transcript, a resync keeps them mounted above the indicator.
         let held_bash = matches!(kind, RebuildKind::Resync)
-            .then(|| std::mem::take(&mut view.pending_bash))
+            .then(|| {
+                (
+                    std::mem::take(&mut view.pending_bash),
+                    std::mem::take(&mut view.pending_bash_timestamps),
+                )
+            })
             .unwrap_or_default();
         // A rebind replaces the whole view: the previous session's open bash view
         // dies with its transcript, and the tok/sec stats restart per session.
@@ -655,7 +668,8 @@ impl SessionUi {
             }
         }
         let snapshot = self.pending_snapshot.take().unwrap_or_default();
-        self.replace_transcript(snapshot, view);
+        let snapshot_timestamps = std::mem::take(&mut self.pending_snapshot_timestamps);
+        self.replace_transcript_at(snapshot, snapshot_timestamps, view);
         if let Some(message) = self.pending_model_fallback_message.take() {
             view.push_entry(ChatEntry::Status {
                 text: format!("\u{26a0} {message}"),
@@ -685,7 +699,7 @@ impl SessionUi {
         self.goal_view.reset_row_tracking();
         self.sync_goal_tray(view);
         self.sync_activity_dock(view);
-        view.pending_bash = held_bash;
+        (view.pending_bash, view.pending_bash_timestamps) = held_bash;
         // The rebuild decides the mounted card's fate: a rebind drops it with the old transcript; a
         // resync runs the bashFinished edge — a run that ended behind the dead link settles its
         // card with an unknown exit.

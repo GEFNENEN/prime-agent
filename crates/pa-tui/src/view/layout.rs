@@ -8,7 +8,14 @@ use crate::chrome::render_splash;
 use crate::Line;
 
 /// Inputs shared by local entry caches and cross-view handoffs.
-pub(super) type LayoutOptions = (crate::theme::Theme, String, bool, bool, Option<url::Url>);
+pub(super) type LayoutOptions = (
+    crate::theme::Theme,
+    String,
+    bool,
+    bool,
+    bool,
+    Option<url::Url>,
+);
 
 #[cfg(test)]
 thread_local! {
@@ -331,10 +338,28 @@ impl AgentView {
         if let (Some(working), Some(since)) = (&mut self.working, self.working_since) {
             working.elapsed_secs = since.elapsed().as_secs();
         }
+        // A loader's display time is fixed when its first frame paints, so
+        // the stamp never drifts while the spinner animates.
+        if self.working.is_none() {
+            self.working_started_ms = None;
+        } else if self.working_started_ms.is_none() {
+            self.working_started_ms = Some(crate::transcript_time::now_ms());
+        }
+        if self.retry.is_none() {
+            self.retry_started_ms = None;
+        } else if self.retry_started_ms.is_none() {
+            self.retry_started_ms = Some(crate::transcript_time::now_ms());
+        }
+        if self.compaction.is_none() {
+            self.compaction_started_ms = None;
+        } else if self.compaction_started_ms.is_none() {
+            self.compaction_started_ms = Some(crate::transcript_time::now_ms());
+        }
         let options = (
             self.theme.clone(),
             self.code_block_indent.clone(),
             self.show_images,
+            self.show_timestamps,
             crate::image_component::fullscreen_image_fallback_active(),
             url::Url::from_directory_path(&self.chrome.cwd).ok(),
         );
@@ -363,34 +388,53 @@ impl AgentView {
 
     pub(super) fn render_transcript_tail(&self, width: usize) -> Vec<Line> {
         let mut tail: Vec<Line> = Vec::new();
+        let muted = self.theme.fg_style(crate::theme::ThemeColor::Muted);
+        let prefix =
+            |timestamp: Option<u64>| timestamp.map_or(0, |_| crate::transcript_time::PREFIX_WIDTH);
         // In-flight bash output renders ABOVE the execution indicator and
         // flushes into the transcript when the turn settles.
         if !self.pending_bash.is_empty() {
             // TS `keyText("tui.select.cancel")`: every key of the
             // binding joins the hint ("Esc/Ctrl+C").
             let cancel_hint = self.editor.keybindings().key_text("tui.select.cancel");
-            for card in &self.pending_bash {
-                tail.push(Vec::new());
-                tail.extend(crate::bash_card::render_bash_execution(
+            for (index, card) in self.pending_bash.iter().enumerate() {
+                let timestamp = self.display_timestamp(
+                    self.pending_bash_timestamps.get(index).copied().flatten(),
+                    width,
+                );
+                let body_width = width.saturating_sub(prefix(timestamp));
+                let mut rows: Vec<Line> = vec![Vec::new()];
+                rows.extend(crate::bash_card::render_bash_execution(
                     card,
                     self.pulse_frame,
                     self.detail.tool_output_expanded(),
                     &cancel_hint,
                     &self.theme,
-                    width,
+                    body_width,
                 ));
+                if timestamp.is_some() {
+                    crate::transcript_time::decorate(&mut rows, timestamp, muted);
+                }
+                tail.extend(rows);
             }
         }
         // The retry loader owns the status area, a compaction run next;
         // the working loader renders only when neither is active.
         if let Some(retry) = &self.retry {
-            tail.extend(crate::chat::render_retry(
+            let timestamp = self.display_timestamp(self.retry_started_ms, width);
+            let mut rows = crate::chat::render_retry(
                 retry,
                 self.pulse_frame,
                 &self.theme,
-                width,
-            ));
+                width.saturating_sub(prefix(timestamp)),
+            );
+            if timestamp.is_some() {
+                crate::transcript_time::decorate(&mut rows, timestamp, muted);
+            }
+            tail.extend(rows);
         } else if let Some(compaction) = &self.compaction {
+            let timestamp = self.display_timestamp(self.compaction_started_ms, width);
+            let body_width = width.saturating_sub(prefix(timestamp));
             let cancel_hint = self
                 .editor
                 .keybindings()
@@ -399,23 +443,37 @@ impl AgentView {
                     || "Ctrl+C".to_string(),
                     |key| crate::keybindings::format_key_text(&key),
                 );
-            tail.extend(crate::compaction_row::render_compaction_loader(
+            let mut rows = crate::compaction_row::render_compaction_loader(
                 compaction,
                 self.pulse_frame,
                 &cancel_hint,
                 &self.theme,
-                width,
-            ));
+                body_width,
+            );
             // The live streamed-summary block (the operator's "stream the compacted summary"
             // feature): the expanded view renders it under the loader row.
-            tail.extend(crate::compaction_row::render_compaction_stream(
+            rows.extend(crate::compaction_row::render_compaction_stream(
                 compaction,
                 self.detail.tool_output_expanded(),
                 &self.theme,
-                width,
+                body_width,
             ));
+            if timestamp.is_some() {
+                crate::transcript_time::decorate(&mut rows, timestamp, muted);
+            }
+            tail.extend(rows);
         } else if let Some(working) = &self.working {
-            tail.extend(render_loader(working, self.pulse_frame, &self.theme, width));
+            let timestamp = self.display_timestamp(self.working_started_ms, width);
+            let mut rows = render_loader(
+                working,
+                self.pulse_frame,
+                &self.theme,
+                width.saturating_sub(prefix(timestamp)),
+            );
+            if timestamp.is_some() {
+                crate::transcript_time::decorate(&mut rows, timestamp, muted);
+            }
+            tail.extend(rows);
         }
         // The side-question pane hugs the transcript tail, not the dock, so the frame's slack
         // lands between the pane and the editor (TS mounts it behind a `Spacer(1)`).
