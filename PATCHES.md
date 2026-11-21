@@ -72,6 +72,7 @@
 | 40 | `903505fbd` | feat | 恢复 Hindsight 记忆（隐藏 hook，见 `docs/hindsight-hook.md`） |
 | 41 | `e0df5aba3` | feat | TUI transcript 按条显示本地时间戳，`/settings → Display` 可开关（`terminal.showTimestamps`，默认关） |
 | 42 | `3ce9b9ff6` | feat | TUI 时间戳格式可调：日期（none / MM/DD / YY/MM/DD / YYYY/MM/DD）与毫秒位数（0–3），前缀宽度随格式 11–26 列；新增 `terminal.timestampDate`、`terminal.timestampMillis` |
+| 43 | `a2a63db83` | feat | Ctrl+O 循环新增 minimal 阅读级别：只留 user/assistant 对话，工具卡、bash、通知、agent 消息、注入 prompt、压缩行、thinking 全隐藏；级别持久化为 `chatDetail: "minimal"` |
 
 表格按**行为补丁**计数，所以行数与提交数**不相等**：同一个补丁的后续收尾提交
 （对已入表补丁的修正、重构、补测试）并入该行的摘要，不另开一行——表末那条就是
@@ -80,11 +81,13 @@
 rebase 修复、收尾提交、行尾修复逐项对照；任何一侧新增提交都会让固定算术式过期，
 所以这里不写死数字。
 
-补丁之外还有五类提交不进表格：文档提交、版本戳提交、3 个 rebase 修复提交
+补丁之外还有五类提交不进表格：文档提交、版本戳提交、rebase 修复提交
 （`84710e26c`、`fc07ef18a` 改 `pa-tui` 的测试调用点；`07754b4bf` 修上游 #4044 删掉
-的 private-auth 调用、`[profile.dev]` 合并与 agents view 列宽测试）、已入表补丁的收尾
-提交、以及行尾修复提交（`0e6f3e8d2`）。文档与版本戳提交随 rebase 改写 hash，按标题找
-（`docs:` / `chore: stamp` 开头）；修复提交是重放破损的修补，不是本地补丁。
+的 private-auth 调用、`[profile.dev]` 合并与 agents view 列宽测试；`4f35b0d29` 修
+v0.10.5 同步的冲突收尾、Hindsight 的 TLS provider、`assert_is_empty` 新 lint）、
+已入表补丁的收尾提交、以及行尾修复提交（`0e6f3e8d2`）。文档与版本戳提交随 rebase
+改写 hash，按标题找（`docs:` / `chore: stamp` 开头）；修复提交是重放破损的修补，
+不是本地补丁。
 
 补丁 26–31 是补录条目：它们一直在 `custom` 上（均为 HEAD 的祖先），此前没进清单，
 导致 rebase 时没人知道有这几处需要重新应用或验证。其中 `e661fbbeb`（补丁 28）
@@ -113,6 +116,7 @@ rebase 修复、收尾提交、行尾修复逐项对照；任何一侧新增提�
 | `custom.41` | TUI transcript 按条显示本地时间戳（`terminal.showTimestamps`，默认关）。二进制内容变了，所以升号 |
 | `custom.41`（重放） | 同步上游到 `upstream/main` `61d4b4262`（12 个提交，含稳定 tag `v0.10.4`）。基线版本从 `0.10.3` 变成 `0.10.4`，后缀随之变成 `0.10.4+custom.41`；`custom.41` 此前从未构建，所以号不复用冲突 |
 | `custom.42` | TUI 时间戳格式可调（日期 4 档、毫秒 0–3 位），前缀宽度随格式变化。二进制内容变了，所以升号 |
+| `custom.43` | 同步上游到 `v0.10.5`（`783acb5d7`，40 个提交），并把 Ctrl+O 的 minimal 阅读级别并入。上游依赖大升级（`base64` 0.23、`fancy-regex` 0.20、`rsa` 0.10、`sha2` 0.11、`getrandom` 0.4、`reqwest` 0.13），二进制内容变了，所以升号 |
 
 stamp 提交写于哪个基线，rebase 后正文里的版本号可能与实际写入的不一致；那种提交
 正文不追改（改写历史只为一个字符串不值当）。唯一例外是**标题行**：`v0.10.3` 那次
@@ -121,6 +125,41 @@ stamp 提交写于哪个基线，rebase 后正文里的版本号可能与实际�
 对不上；更早的 `0.10.2+custom.N` 标题属于它当时写下的号，保持原样。
 
 ## 下次同步注意
+
+**冲突化解（`61d4b4262` → `v0.10.5`／`783acb5d7` 那次，40 个提交）**
+
+1. 127 个提交里 12 处冲突，处理原则同上（保留上游新结构、本地补丁作增量重接）：
+   - `session_engine/admission.rs`：上游把 busy 分支收进 `if busy { ... return Queued }`
+     + `} else { ... }` 的显式分叉（并在 idle 分支加了 race 回退）。turnHook 的
+     `note_turn_hook` / `discard_turn_hook_note` 必须接进 idle 分支；**不要**保留旧的
+     平铺写法，否则会重复出一段 `else if let Err(error)`，编译器报 `unexpected closing
+     delimiter`。
+   - `session_engine/engine.rs`：上游把 `mcp_generic_servers` 改名成
+     `generic_mcp_servers`；turnHook 的 `turn_hook_settings` 与 stopHook 的
+     `stop_hook_settings` 两个捕获都要留住。
+   - `kernel/bootstrap/venv/tests.rs`、`pa-daemon/.../model_resolution.rs`、
+     `pa-core/src/tools/ipython.rs`、`skills/mcp/SKILL.md`：两侧各加了一个测试/条目，
+     取并集（把两个函数都留着，别只取一侧）。
+   - `pa-tui/src/chat.rs`：本分支的 `wrap_user_text`（用户消息按字面渲染）赢；上游的
+     `user_block_preserves_markdown_styles_on_its_background` 测试随之删除，换成
+     `user_block_never_interprets_markdown`。
+2. **`Cargo.toml` / `Cargo.lock` 会整文件冲突**（`Cargo.toml` 甚至报 `161/161` 行全冲
+   突）。原因是历史上某个 stamp 提交用 PowerShell `WriteAllLines` 写成了 CRLF，之后
+   每个提交都带着 CRLF 版本，与本分支的 LF 侧整文件不匹配。解法：`git checkout
+   --theirs -- Cargo.toml Cargo.lock`（取上游的 LF 内容），再把本地的 `uuid` v5 feature
+   加回去，然后用 `sed -i "s/\r$//"` 之类的 LF 归一化写回。**不要**用 PowerShell 的
+   `Set-Content`/`WriteAllLines` 改这两个文件。
+3. 收尾时用 `git filter-branch --tree-filter` 把 `783acb5d7..HEAD` 的
+   `Cargo.toml`/`Cargo.lock` 行尾统一成 LF（否则 83 个提交带着 CRLF 噪音）。跑完之后
+   `git diff-tree 原HEAD 新HEAD` 必须为空。
+4. `reqwest` 升到 0.13 且 workspace 统一用 `rustls-no-provider`：任何**直接**
+   `reqwest::Client::builder()` 都会在首次请求时 panic（"No rustls crypto provider is
+   configured"）。新增 HTTP 客户端一律走 `pa_ai::utils::tls::http_client_builder()`。
+   本次就是 `hindsight/client.rs` 踩了这个坑。
+5. clippy 1.99 新增 `assert_is_empty`（pedantic），本分支补丁里新增的
+   `assert!(x.is_empty());` 必须带消息或改 `assert_eq!`。上游已有 228 处同类告警，属既有
+   噪音，不要顺手全改。
+6. 版本号：基线从 `0.10.4` 变成 `0.10.5`，后缀随之是 `0.10.5+custom.43`。
 
 **冲突化解（`0bce1417b` → `61d4b4262` 那次，12 个提交）**
 
