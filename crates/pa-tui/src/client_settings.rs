@@ -233,9 +233,9 @@ pub trait ClientSettings: Send + Sync {
     /// Returns an error when opening or persisting the settings store
     /// fails.
     fn set_factory_enabled(&self, enabled: bool) -> Result<()>;
-    /// `chatDetail` (`overview`/`details`/`all`; TS #2709 default
+    /// `chatDetail` (`minimal`/`overview`/`details`/`all`; TS #2709 default
     /// `details`): the conversation-detail level the chat starts at.
-    /// `chatDetail` (`overview`/`details`/`all`; the default reads as
+    /// `chatDetail` (`minimal`/`overview`/`details`/`all`; the default reads as
     /// `overview`, the collapse mode): the conversation-detail level the
     /// chat starts at.
     fn chat_detail(&self) -> String;

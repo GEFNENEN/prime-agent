@@ -3,7 +3,6 @@
 use super::*;
 use crate::osc133::RowMarkers;
 use crate::theme::{ColorMode, Theme, ThemeColor};
-use ratatui::style::Modifier;
 
 fn theme() -> Theme {
     Theme::builtin("prime", ColorMode::TrueColor)
@@ -82,9 +81,16 @@ fn retry_loader_spans_carry_the_ts_sgr_boundaries() {
 }
 
 #[test]
-fn detail_cycle_visits_all_three_levels() {
-    // TS `toggleToolOutputExpansion`: overview -> details -> all -> overview.
-    let mut detail = Detail::Overview;
+fn detail_cycle_visits_all_four_levels() {
+    // The extended cycle: minimal -> overview -> details -> all -> minimal.
+    let mut detail = Detail::Minimal;
+    assert!(detail.conversation_only());
+    assert!(!detail.show_thinking());
+    assert!(!detail.tool_output_expanded());
+    assert!(!detail.edit_diffs_expanded());
+    detail = detail.next();
+    assert_eq!(detail, Detail::Overview);
+    assert!(!detail.conversation_only());
     assert!(!detail.show_thinking());
     assert!(!detail.tool_output_expanded());
     assert!(!detail.edit_diffs_expanded());
@@ -99,7 +105,7 @@ fn detail_cycle_visits_all_three_levels() {
     assert!(detail.tool_output_expanded());
     assert!(detail.edit_diffs_expanded());
     detail = detail.next();
-    assert_eq!(detail, Detail::Overview);
+    assert_eq!(detail, Detail::Minimal);
 }
 
 #[test]
@@ -107,7 +113,12 @@ fn detail_wire_names_round_trip_with_the_startup_fallback() {
     // The Ctrl+O level persists as the `chatDetail` wire string and
     // reads back; anything unknown is the startup level (operator
     // directive 2026-09-28).
-    for detail in [Detail::Overview, Detail::Details, Detail::All] {
+    for detail in [
+        Detail::Minimal,
+        Detail::Overview,
+        Detail::Details,
+        Detail::All,
+    ] {
         assert_eq!(Detail::from_wire_name(detail.wire_name()), detail);
     }
     assert_eq!(Detail::from_wire_name(""), Detail::Overview);

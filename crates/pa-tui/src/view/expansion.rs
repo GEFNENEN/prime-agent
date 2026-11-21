@@ -62,7 +62,8 @@ impl AgentView {
     /// The Ctrl+O cycle (`app.tools.expand`, TS `toggleToolOutputExpansion` +
     /// `applyChatExpansion`): step the conversation level and reset every card to it — the
     /// flips are XOR-ed against the level. The stale-mark is required: a toggled entry's cache
-    /// slot holds its flipped rows.
+    /// slot holds its flipped rows. The minimal level hides the card families outright, so the
+    /// cycle from it shows them again.
     pub(crate) fn cycle_detail(&mut self) {
         for index in std::mem::take(&mut self.toggled_cards) {
             self.mark_entry_stale(index);
@@ -145,6 +146,13 @@ pub(super) mod tests {
         assert!(
             at_all.contains("alpha 1") && at_all.contains("beta 1"),
             "the `all` level expands every card: {at_all}"
+        );
+        view.cycle_detail();
+        let minimal = transcript_text(&mut view);
+        assert_eq!(view.detail, Detail::Minimal);
+        assert!(
+            !minimal.contains("alpha 1") && !minimal.contains("beta 1"),
+            "the minimal level hides every card: {minimal}"
         );
         view.cycle_detail();
         let collapsed = transcript_text(&mut view);

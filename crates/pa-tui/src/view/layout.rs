@@ -17,6 +17,14 @@ pub(super) type LayoutOptions = (
     Option<url::Url>,
 );
 
+/// One entry's cache slots, one per conversation level (`Detail::cache_slot`).
+pub(super) type DetailSlots<T> = [Option<T>; crate::chat::Detail::COUNT];
+
+/// Empty per-level slots (a fresh entry caches nothing yet).
+pub(super) fn empty_slots<T>() -> DetailSlots<T> {
+    std::array::from_fn(|_| None)
+}
+
 #[cfg(test)]
 thread_local! {
     pub(super) static ENTRY_VISITS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
@@ -253,6 +261,11 @@ impl AgentView {
         first: bool,
         preceded_by_tool_activity: bool,
     ) -> bool {
+        // A hidden entry contributes no rows, so its spacing decision is moot (and the
+        // scan below would walk the whole hidden run).
+        if !self.detail.shows_entry(entry) {
+            return false;
+        }
         match entry {
             // TS `addMessageToChat`: a user submission leads with `Spacer(1)` unless the chat is
             // empty.
@@ -304,11 +317,7 @@ impl AgentView {
     pub(crate) fn layout_pass(&mut self, width: usize) -> TranscriptLayout {
         self.sparse_enabled = false;
         self.prepare_layout(width);
-        let detail = match self.detail {
-            crate::chat::Detail::Overview => 0,
-            crate::chat::Detail::Details => 1,
-            crate::chat::Detail::All => 2,
-        };
+        let detail = self.detail.cache_slot();
         let splash = self.top_section_rows(width);
         let mut offsets = Vec::with_capacity(self.chat.len() + 1);
         offsets.push(splash.len());
@@ -374,20 +383,18 @@ impl AgentView {
             self.layout_options = Some(options);
             if self.sparse_enabled {
                 for index in &self.sparse_entries {
-                    self.entry_layout[*index] = [None, None, None];
+                    self.entry_layout[*index] = empty_slots();
                 }
                 self.sparse_entries.clear();
             } else {
                 self.entry_layout
                     .iter_mut()
-                    .for_each(|slot| *slot = [None, None, None]);
+                    .for_each(|slot| *slot = empty_slots());
             }
             self.md_caches.borrow_mut().clear();
         }
-        self.entry_layout
-            .resize_with(self.chat.len(), || [None, None, None]);
-        self.entry_heights
-            .resize(self.chat.len(), [None, None, None]);
+        self.entry_layout.resize_with(self.chat.len(), empty_slots);
+        self.entry_heights.resize(self.chat.len(), empty_slots());
         self.seed_pending_handoff();
     }
 
@@ -397,8 +404,9 @@ impl AgentView {
         let prefix =
             |timestamp: Option<u64>| timestamp.map_or(0, |_| self.timestamp_format.prefix_width());
         // In-flight bash output renders ABOVE the execution indicator and
-        // flushes into the transcript when the turn settles.
-        if !self.pending_bash.is_empty() {
+        // flushes into the transcript when the turn settles. The
+        // conversation-only level hides it like every other bash card.
+        if !self.pending_bash.is_empty() && !self.detail.conversation_only() {
             // TS `keyText("tui.select.cancel")`: every key of the
             // binding joins the hint ("Esc/Ctrl+C").
             let cancel_hint = self.editor.keybindings().key_text("tui.select.cancel");

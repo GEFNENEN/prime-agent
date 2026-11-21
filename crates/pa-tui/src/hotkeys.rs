@@ -138,7 +138,7 @@ pub fn hotkeys_guide(kb: &KeybindingsManager) -> String {
         r"| `{exit}` | Exit (when editor is empty) |
 | `{suspend}` | Suspend to background |
 | `{select_model}` | Open model selector |
-| `{expand_tools}` | Cycle overview → thinking + diffs → all output |"
+| `{expand_tools}` | Cycle minimal → overview → thinking + diffs → all output |"
     );
     let _ = writeln!(
         hotkeys,
@@ -172,7 +172,10 @@ mod tests {
     fn guide_renders_default_keys() {
         let kb = KeybindingsManager::new();
         let guide = hotkeys_guide(&kb);
-        assert!(guide.contains("| `Ctrl+O` | Cycle overview"), "{guide}");
+        assert!(
+            guide.contains("| `Ctrl+O` | Cycle minimal \u{2192} overview"),
+            "{guide}"
+        );
         assert!(
             guide.contains("| `Esc` | Clear input / cancel autocomplete |"),
             "{guide}"
@@ -224,7 +227,9 @@ mod tests {
         // `alt` renders with the host platform's label (macOS: Option, elsewhere: Alt).
         let alt = crate::keybindings::host_alt_label();
         assert!(
-            guide.contains(&format!("| `Ctrl+{alt}+X` | Cycle overview")),
+            guide.contains(&format!(
+                "| `Ctrl+{alt}+X` | Cycle minimal \u{2192} overview"
+            )),
             "{guide}"
         );
         assert!(!guide.contains("`Ctrl+O`"), "{guide}");
@@ -239,9 +244,10 @@ mod tests {
         cfg.insert("app.tools.expand".to_string(), Vec::new());
         let kb = KeybindingsManager::with_user_bindings(cfg);
         let guide = hotkeys_guide(&kb);
-        assert!(guide.contains("| `` | Cycle overview"), "{guide}");
-        // The disabled binding's cell is the formatted `` `Ctrl+O` `` pair — a bare
-        // substring match would also trip on macOS `Ctrl+Option+...` cells.
+        assert!(
+            guide.contains("| `` | Cycle minimal \u{2192} overview"),
+            "{guide}"
+        );
         assert!(!guide.contains("`Ctrl+O`"), "{guide}");
     }
 }

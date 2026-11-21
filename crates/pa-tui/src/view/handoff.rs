@@ -13,7 +13,7 @@ pub(super) type LayoutShape = (usize, super::layout::LayoutOptions);
 
 /// One visible-window entry's held layouts, per detail slot (a pack is
 /// valid for the slot it was built under).
-pub(super) type HeldSlots = [Option<EntryLayout>; 3];
+pub(super) type HeldSlots = super::layout::DetailSlots<EntryLayout>;
 
 /// The stored handoff: the adopt key plus the window's packed layouts.
 pub(super) struct LayoutHandoff {

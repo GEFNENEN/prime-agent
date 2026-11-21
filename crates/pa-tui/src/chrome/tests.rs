@@ -1095,16 +1095,21 @@ fn tray_override_replaces_location_label() {
 
 #[test]
 fn detail_status_label() {
+    use crate::chat::Detail;
     assert_eq!(
-        conversation_detail_status(false, false, "Ctrl+O"),
+        conversation_detail_status(Detail::Minimal, "Ctrl+O"),
+        "Minimal mode (Ctrl+O to expand)"
+    );
+    assert_eq!(
+        conversation_detail_status(Detail::Overview, "Ctrl+O"),
         "Collapsed mode (Ctrl+O to expand)"
     );
     assert_eq!(
-        conversation_detail_status(false, true, "Ctrl+O"),
+        conversation_detail_status(Detail::Details, "Ctrl+O"),
         "Details mode (Ctrl+O to expand)"
     );
     assert_eq!(
-        conversation_detail_status(true, true, "Ctrl+O"),
+        conversation_detail_status(Detail::All, "Ctrl+O"),
         "Expanded mode (Ctrl+O to collapse)"
     );
 }

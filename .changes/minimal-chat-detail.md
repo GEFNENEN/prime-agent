@@ -1,0 +1,1 @@
+- Ctrl+O now has a minimal reading level: the chat shows only the user and assistant dialogue, with tool cards, bash runs, notices, agent messages, injected prompts, compaction rows, and thinking hidden. The level persists as `chatDetail: "minimal"`.

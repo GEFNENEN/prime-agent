@@ -263,6 +263,7 @@ impl SettingsManager {
     #[must_use]
     pub fn get_chat_detail(&self) -> String {
         match self.settings().chat_detail.as_deref() {
+            Some("minimal") => "minimal",
             Some("details") => "details",
             Some("all") => "all",
             _ => "overview",
@@ -1441,6 +1442,12 @@ mod tests {
             manager.get_chat_detail(),
             "details",
             "a saved details level reads back exactly (the Ctrl+O thinking reveal persists)"
+        );
+        manager.set_chat_detail("minimal").unwrap();
+        assert_eq!(
+            manager.get_chat_detail(),
+            "minimal",
+            "the minimal reading mode is a stored level too"
         );
         manager.set_chat_detail("verbose").unwrap();
         assert_eq!(

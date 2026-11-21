@@ -14,6 +14,9 @@ use ratatui::style::Style;
 /// How much detail the conversation shows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Detail {
+    /// `minimal`: only the user and assistant dialogue - tool cards, bash runs,
+    /// notices, and thinking blocks hidden (a clean reading mode).
+    Minimal,
     /// `overview`: thinking hidden, tool output and edit diffs collapsed.
     Overview,
     /// `details`: thinking visible, edit diffs expanded, tool output collapsed.
@@ -23,19 +26,49 @@ pub enum Detail {
 }
 
 impl Detail {
-    /// The Ctrl+O cycle: overview -> details -> all -> overview.
+    /// The number of levels: the per-level layout caches carry one slot each.
+    pub(crate) const COUNT: usize = 4;
+
+    /// The Ctrl+O cycle: minimal -> overview -> details -> all -> minimal.
     #[must_use]
     pub fn next(self) -> Self {
         match self {
+            Detail::Minimal => Detail::Overview,
             Detail::Overview => Detail::Details,
             Detail::Details => Detail::All,
-            Detail::All => Detail::Overview,
+            Detail::All => Detail::Minimal,
         }
+    }
+
+    /// The level's slot in the per-level layout caches.
+    #[must_use]
+    pub(crate) fn cache_slot(self) -> usize {
+        match self {
+            Detail::Minimal => 0,
+            Detail::Overview => 1,
+            Detail::Details => 2,
+            Detail::All => 3,
+        }
+    }
+
+    /// Whether the level is the conversation-only reading mode.
+    #[must_use]
+    pub fn conversation_only(self) -> bool {
+        matches!(self, Detail::Minimal)
+    }
+
+    /// The minimal level's row filter: the user and assistant dialogue stays;
+    /// every activity or bookkeeping row family hides. The other levels show
+    /// every entry.
+    #[must_use]
+    pub fn shows_entry(self, entry: &ChatEntry) -> bool {
+        !self.conversation_only()
+            || matches!(entry, ChatEntry::User { .. } | ChatEntry::Assistant(_))
     }
 
     #[must_use]
     pub fn show_thinking(self) -> bool {
-        !matches!(self, Detail::Overview)
+        matches!(self, Detail::Details | Detail::All)
     }
 
     #[must_use]
@@ -45,13 +78,15 @@ impl Detail {
 
     #[must_use]
     pub fn edit_diffs_expanded(self) -> bool {
-        !matches!(self, Detail::Overview)
+        matches!(self, Detail::Details | Detail::All)
     }
 
-    /// The stored wire name (TS `ChatDetail`): "overview" | "details" | "all".
+    /// The stored wire name (TS `ChatDetail`):
+    /// "minimal" | "overview" | "details" | "all".
     #[must_use]
     pub fn wire_name(self) -> &'static str {
         match self {
+            Detail::Minimal => "minimal",
             Detail::Overview => "overview",
             Detail::Details => "details",
             Detail::All => "all",
@@ -63,6 +98,7 @@ impl Detail {
     #[must_use]
     pub fn from_wire_name(name: &str) -> Self {
         match name {
+            "minimal" => Detail::Minimal,
             "details" => Detail::Details,
             "all" => Detail::All,
             _ => Detail::Overview,
@@ -165,9 +201,13 @@ pub struct AssistantMessage {
 
 impl AssistantMessage {
     /// The tool-call separator renders for visible bodies, aborted
-    /// messages, and messages not following tool activity.
+    /// messages, and messages not following tool activity. The
+    /// conversation-only level never separates its hidden tool cards.
     #[must_use]
     pub fn has_trailing_space(&self, detail: Detail, preceded_by_tool_activity: bool) -> bool {
+        if detail.conversation_only() {
+            return false;
+        }
         let has_visible_content = self.blocks.iter().any(|block| match block {
             MessageBlock::Thinking(text) => detail.show_thinking() && !text.trim().is_empty(),
             MessageBlock::Text(text) => !text.trim().is_empty(),
@@ -516,7 +556,7 @@ pub(crate) fn render_assistant_with_style(
             width,
         ));
     }
-    if geometry::trailing_space(message, has_visible_content, preceded_by_tool_activity) {
+    if message.has_trailing_space(detail, preceded_by_tool_activity) {
         out.push(spacer());
     }
     // Zone markers on message bodies without tool calls (TS `AssistantMessageComponent.render`:

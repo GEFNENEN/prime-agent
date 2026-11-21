@@ -169,8 +169,8 @@ pub struct AgentView {
     pub(crate) hover_pos: Option<(usize, usize)>,
     /// Rendered rows per chat entry and detail mode: a frame re-renders only entries invalidated
     /// since the last frame, so a transcript-scale frame pays full layout once per entry/detail.
-    entry_layout: Vec<[Option<EntryLayout>; 3]>,
-    entry_heights: Vec<[Option<(bool, usize)>; 3]>,
+    entry_layout: Vec<layout::DetailSlots<EntryLayout>>,
+    entry_heights: Vec<layout::DetailSlots<(bool, usize)>>,
     sparse_window: Option<lazy::SparseWindow>,
     sparse_enabled: bool,
     /// The height of the entry an in-place mutation is about to change:
@@ -437,7 +437,7 @@ impl AgentView {
         self.entry_timestamps.push(Some(
             timestamp_ms.unwrap_or_else(crate::transcript_time::now_ms),
         ));
-        self.entry_layout.push([None, None, None]);
+        self.entry_layout.push(layout::empty_slots());
         self.sparse_note_append();
     }
 
@@ -734,11 +734,11 @@ impl AgentView {
         }
         self.entry_layout.splice(
             range.clone(),
-            std::iter::repeat_n([None, None, None], inserted),
+            std::iter::repeat_n(layout::empty_slots(), inserted),
         );
         self.entry_heights.splice(
             range.clone(),
-            std::iter::repeat_n([None, None, None], inserted),
+            std::iter::repeat_n(layout::empty_slots(), inserted),
         );
         self.inbox_run_heads.get_mut().truncate(range.start);
         self.chat.splice(range.clone(), entries);
@@ -801,18 +801,18 @@ impl AgentView {
             }
         }
         if let Some(slot) = self.entry_layout.get_mut(index) {
-            *slot = [None, None, None];
+            *slot = layout::empty_slots();
         }
         if let Some(slot) = self.entry_heights.get_mut(index) {
-            *slot = [None, None, None];
+            *slot = layout::empty_slots();
         }
         for (offset, entry) in self.chat.iter().enumerate().skip(index + 1) {
             if entry.is_envelope_row() {
                 if let Some(slot) = self.entry_layout.get_mut(offset) {
-                    *slot = [None, None, None];
+                    *slot = layout::empty_slots();
                 }
                 if let Some(slot) = self.entry_heights.get_mut(offset) {
-                    *slot = [None, None, None];
+                    *slot = layout::empty_slots();
                 }
             }
         }
@@ -826,11 +826,7 @@ impl AgentView {
             .first_key("app.tools.expand")
             .map(|key| crate::keybindings::format_key_text(&key))
             .unwrap_or_default();
-        conversation_detail_status(
-            self.detail.tool_output_expanded(),
-            self.detail.show_thinking(),
-            &key,
-        )
+        conversation_detail_status(self.detail, &key)
     }
 
     /// Scroll the transcript window: scrolling up pauses following and

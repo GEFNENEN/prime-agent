@@ -187,7 +187,7 @@ fn handle_key(
         return;
     }
     if key.code == KeyCode::Char('o') && key.modifiers.contains(KeyModifiers::CONTROL) {
-        // Ctrl+O cycles conversation detail: overview -> details -> all -> overview.
+        // Ctrl+O cycles conversation detail: minimal -> overview -> details -> all -> minimal.
         view.cycle_detail();
         return;
     }

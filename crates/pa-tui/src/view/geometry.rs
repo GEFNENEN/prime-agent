@@ -7,6 +7,11 @@ impl AgentView {
         #[cfg(test)]
         super::layout::ENTRY_VISITS.with(|count| count.set(count.get() + 1));
         let entry = &self.chat[index];
+        // The conversation-only level hides entry families wholesale; the render path
+        // returns the same zero rows.
+        if !self.detail.shows_entry(entry) {
+            return 0;
+        }
         // TS `precededByToolActivity` = the compact set.
         let preceded_by_tool = index > 0 && Self::is_compact_neighbor(&self.chat[index - 1]);
         let spacing = self.entry_spacing(index, entry, index == 0, preceded_by_tool);
@@ -413,7 +418,12 @@ mod tests {
         #[test]
         fn entry_rows_count_what_paint_draws(
             entries in prop::collection::vec(entry(), 1..8),
-            detail in prop_oneof![Just(Detail::Overview), Just(Detail::Details), Just(Detail::All)],
+            detail in prop_oneof![
+                Just(Detail::Minimal),
+                Just(Detail::Overview),
+                Just(Detail::Details),
+                Just(Detail::All)
+            ],
             width in prop_oneof![0usize..=16, 0usize..=300],
             indent in prop::sample::select(vec!["", "  "]),
             color in prop::sample::select(vec![ColorMode::TrueColor, ColorMode::Color256]),

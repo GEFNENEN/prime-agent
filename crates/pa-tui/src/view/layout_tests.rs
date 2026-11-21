@@ -151,6 +151,7 @@ fn windows_match_uncached_reference_with_variable_height_and_hidden_entries() {
     }
     for width in [19, 80, 37] {
         for detail in [
+            Detail::Minimal,
             Detail::Overview,
             Detail::Details,
             Detail::All,
@@ -249,7 +250,12 @@ fn sparse_frames_match_full_geometry_at_tail_top_and_scroll() {
         sparse.push_entry(entry.clone());
         full.push_entry(entry);
     }
-    for detail in [Detail::Overview, Detail::Details, Detail::All] {
+    for detail in [
+        Detail::Minimal,
+        Detail::Overview,
+        Detail::Details,
+        Detail::All,
+    ] {
         sparse.detail = detail;
         full.detail = detail;
         full.resolve_sparse_geometry();
@@ -391,7 +397,12 @@ fn cold_variable_detail_tail_and_streaming_selection() {
             aborted: false,
         })));
     }
-    for detail in [Detail::Overview, Detail::Details, Detail::All] {
+    for detail in [
+        Detail::Minimal,
+        Detail::Overview,
+        Detail::Details,
+        Detail::All,
+    ] {
         sparse.detail = detail;
         ENTRY_RENDERS.with(|count| count.set(0));
         sparse.render_frame(80, 24);
@@ -438,21 +449,36 @@ fn mutation_invalidates_every_detail_slot() {
         text: "old".into(),
         kind: StatusKind::Info,
     });
-    for detail in [Detail::Overview, Detail::Details, Detail::All] {
+    for detail in [
+        Detail::Minimal,
+        Detail::Overview,
+        Detail::Details,
+        Detail::All,
+    ] {
         view.detail = detail;
         view.render_frame(80, 24);
     }
     assert!(view.update_status_row(0, "new", StatusKind::Warning));
     ENTRY_RENDERS.with(|count| count.set(0));
-    for detail in [Detail::Overview, Detail::Details, Detail::All] {
+    for detail in [
+        Detail::Minimal,
+        Detail::Overview,
+        Detail::Details,
+        Detail::All,
+    ] {
         view.detail = detail;
         let rows = view.render_frame(80, 24);
-        assert!(rows
+        let shows_new = rows
             .iter()
             .flatten()
-            .any(|span| span.content.contains("new")));
+            .any(|span| span.content.contains("new"));
+        assert_eq!(
+            shows_new,
+            !detail.conversation_only(),
+            "{detail:?}: the mutated status renders everywhere but minimal"
+        );
     }
-    assert_eq!(ENTRY_RENDERS.with(std::cell::Cell::get), 3);
+    assert_eq!(ENTRY_RENDERS.with(std::cell::Cell::get), 4);
 }
 
 #[test]
@@ -548,7 +574,12 @@ fn height_cache_tracks_mutations_and_spacing_in_all_details() {
         aborted: false,
     })));
     view.push_entry(ChatEntry::Tool(Box::default()));
-    for detail in [Detail::Overview, Detail::Details, Detail::All] {
+    for detail in [
+        Detail::Minimal,
+        Detail::Overview,
+        Detail::Details,
+        Detail::All,
+    ] {
         view.detail = detail;
         view.layout_pass(30);
     }
@@ -561,7 +592,12 @@ fn height_cache_tracks_mutations_and_spacing_in_all_details() {
         message.has_tool_calls = true;
     }
     view.mark_entry_stale(0);
-    for detail in [Detail::Overview, Detail::Details, Detail::All] {
+    for detail in [
+        Detail::Minimal,
+        Detail::Overview,
+        Detail::Details,
+        Detail::All,
+    ] {
         view.detail = detail;
         for width in [30, 12] {
             let layout = view.layout_pass(width);

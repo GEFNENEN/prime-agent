@@ -618,11 +618,7 @@ impl AgentView {
         #[cfg(test)]
         super::layout::ENTRY_VISITS.with(|count| count.set(count.get() + 1));
         self.sparse_entries.insert(index);
-        let detail = match self.detail {
-            Detail::Overview => 0,
-            Detail::Details => 1,
-            Detail::All => 2,
-        };
+        let detail = self.detail.cache_slot();
         let entry = &self.chat[index];
         // TS `precededByToolActivity` = the compact set.
         let preceded_by_tool = index > 0 && Self::is_compact_neighbor(&self.chat[index - 1]);

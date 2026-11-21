@@ -29,7 +29,12 @@ impl AgentView {
         let mut tool_separator = false;
         while idx > 0 {
             idx -= 1;
-            match &self.chat[idx] {
+            let preceding = &self.chat[idx];
+            // A row the level hides contributes nothing to the spacing scan.
+            if !self.detail.shows_entry(preceding) {
+                continue;
+            }
+            match preceding {
                 ChatEntry::Assistant(message) => {
                     match self.assistant_spacing_content(message) {
                         SpacingContent::Hidden => {}
@@ -100,6 +105,11 @@ impl AgentView {
     ) -> Vec<Line> {
         #[cfg(test)]
         layout::ENTRY_RENDERS.with(|count| count.set(count.get() + 1));
+        // The conversation-only level renders no rows for hidden entry families; the
+        // count path returns the same zero, so layout geometry stays exact.
+        if !self.detail.shows_entry(entry) {
+            return Vec::new();
+        }
         let detail = self.entry_detail(index);
         let timestamp = self.entry_timestamp(index, width);
         let width =

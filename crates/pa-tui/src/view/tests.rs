@@ -234,6 +234,8 @@ fn a_chat_starts_at_the_collapsed_detail_level() {
     v.detail = v.detail.next();
     assert_eq!(v.detail.next(), Detail::All);
     v.detail = v.detail.next();
+    assert_eq!(v.detail.next(), Detail::Minimal);
+    v.detail = v.detail.next();
     assert_eq!(v.detail.next(), Detail::Overview);
 }
 
@@ -1121,10 +1123,18 @@ fn compaction_summary_block_toggles_with_the_detail_cycle() {
         "the expanded markdown body renders: {expanded}"
     );
     view.detail = view.detail.next();
+    let minimal = transcript_text(&mut view, 80);
+    assert_eq!(view.detail, Detail::Minimal);
+    assert!(
+        !minimal.contains("Context compacted"),
+        "the minimal level hides the summary row: {minimal}"
+    );
+    view.detail = view.detail.next();
     let collapsed_again = transcript_text(&mut view, 80);
     assert_eq!(view.detail, Detail::Overview);
     assert!(
-        !collapsed_again.contains("Compacted from"),
+        collapsed_again.contains("Context compacted")
+            && !collapsed_again.contains("Compacted from"),
         "the cycle back to `overview` collapses the block: {collapsed_again}"
     );
 }
@@ -1775,6 +1785,129 @@ fn settled_rows_survive_a_cache_roundtrip() {
         first.replace("0s", "").replace("0.0s", ""),
         fresh_text.replace("0s", "").replace("0.0s", ""),
         "a fresh view renders the same rows (the Took clock may move)"
+    );
+}
+
+/// The minimal level is a reading mode: only the user and assistant dialogue
+/// renders. Every activity and bookkeeping row family hides, and the per-level
+/// caches never serve a row rendered for another level.
+#[test]
+fn minimal_detail_renders_only_the_conversation() {
+    let entries = vec![
+        ChatEntry::Status {
+            text: "status-notice".to_string(),
+            kind: crate::chat::StatusKind::Info,
+        },
+        ChatEntry::User {
+            text: "hello".to_string(),
+        },
+        ChatEntry::Assistant(Box::new(AssistantMessage {
+            blocks: vec![
+                MessageBlock::Thinking("thinking-body".to_string()),
+                MessageBlock::Text("assistant-answer".to_string()),
+            ],
+            has_tool_calls: true,
+            streaming: false,
+            error: None,
+            aborted: false,
+        })),
+        settled_tool_card("c0"),
+        ChatEntry::BashExecution(Box::new(crate::bash_card::BashExecutionCard::settled(
+            "echo user-bash",
+            false,
+        ))),
+        ChatEntry::SlashCommand {
+            text: "/model other".to_string(),
+        },
+        ChatEntry::CompactionSummary {
+            summary: "compact-story".to_string(),
+            tokens_before: 10,
+            custom_instructions: None,
+        },
+        ChatEntry::AgentMessage(Box::new(crate::custom_message::AgentMessageRow {
+            direction: crate::custom_message::AgentMessageDirection::Received,
+            counterpart: "lane".to_string(),
+            message: "agent-body".to_string(),
+        })),
+        ChatEntry::ShellCompletion(Box::new(crate::custom_message::ShellCompletionRow {
+            pid: Some(7),
+            exit_code: Some(0),
+            content: "shell-body".to_string(),
+        })),
+        ChatEntry::InjectedPrompt(Box::new(crate::custom_message::InjectedPromptRow {
+            kind: crate::custom_message::InjectedPromptKind::KernelRestored { restored: true },
+            body: None,
+        })),
+        ChatEntry::RefinementOutcome(Box::new(crate::custom_message::RefinementOutcomeRow {
+            header: "Refined".to_string(),
+            summary: "refinement-body".to_string(),
+            meta: String::new(),
+            edits: Vec::new(),
+        })),
+        ChatEntry::CustomPanel(Box::new(crate::custom_message::CustomPanelRow {
+            custom_type: "notice".to_string(),
+            content: "panel-body".to_string(),
+        })),
+    ];
+    let mut view = view_with(entries);
+    // Render the expanded level first so the minimal level is shown to ignore
+    // the expanded rows cached under another slot.
+    let hidden = [
+        "status-notice",
+        "thinking-body",
+        "echo done",
+        "echo user-bash",
+        "/model other",
+        "Context compacted",
+        "compact-story",
+        "Agent message",
+        "agent-body",
+        "shell-body",
+        "Restored Python kernel state",
+        "Refined",
+        "refinement-body",
+        "panel-body",
+    ];
+    view.detail = Detail::All;
+    let expanded = transcript_text(&mut view, 80);
+    for marker in hidden {
+        assert!(
+            expanded.contains(marker),
+            "the expanded level renders {marker:?}: {expanded}"
+        );
+    }
+    view.detail = Detail::Minimal;
+    let minimal = transcript_text(&mut view, 80);
+    assert!(
+        minimal.contains("hello") && minimal.contains("assistant-answer"),
+        "the user and assistant dialogue renders: {minimal}"
+    );
+    for marker in hidden {
+        assert!(
+            !minimal.contains(marker),
+            "the minimal level hides {marker:?}: {minimal}"
+        );
+    }
+    // The cycle returns to the activity levels; thinking stays hidden at overview.
+    view.cycle_detail();
+    let overview = transcript_text(&mut view, 80);
+    assert_eq!(view.detail, Detail::Overview);
+    assert!(
+        overview.contains("status-notice")
+            && overview.contains("echo done")
+            && overview.contains("Context compacted")
+            && overview.contains("Agent message"),
+        "the overview level restores the activity rows: {overview}"
+    );
+    assert!(
+        !overview.contains("thinking-body"),
+        "overview still hides thinking: {overview}"
+    );
+    view.detail = Detail::All;
+    let expanded_again = transcript_text(&mut view, 80);
+    assert!(
+        expanded_again.contains("echo done") && expanded_again.contains("thinking-body"),
+        "the expanded level's cached rows survive the minimal trip: {expanded_again}"
     );
 }
 

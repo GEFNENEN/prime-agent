@@ -2020,8 +2020,11 @@ async fn tui_compact_shows_the_loader_then_the_summary_and_rebuilds() {
             pa_tui::interactive::HeadlessStep::WaitIdle { timeout_ms: 30_000 },
             pa_tui::interactive::HeadlessStep::Submit("/compact focus on the goal".to_string()),
             pa_tui::interactive::HeadlessStep::WaitIdle { timeout_ms: 30_000 },
-            // Ctrl+O twice walks overview -> details -> all; the third press wraps to overview.
+            // Ctrl+O twice walks overview -> details -> all; the third press reaches
+            // minimal and the fourth wraps to overview.
             ctrl_o(),
+            ctrl_o(),
+            pa_tui::interactive::HeadlessStep::SettleIdle,
             ctrl_o(),
             pa_tui::interactive::HeadlessStep::SettleIdle,
             ctrl_o(),
@@ -2076,6 +2079,17 @@ async fn tui_compact_shows_the_loader_then_the_summary_and_rebuilds() {
     assert!(
         !last.contains("first"),
         "the compacted-away first turn dropped from the rebuilt transcript:\n{last}"
+    );
+
+    // The minimal level keeps the dialogue and hides the compaction row.
+    let minimal = outcome
+        .frames
+        .iter()
+        .find(|frame| frame.contains("Minimal mode"))
+        .expect("some frame captured the minimal level");
+    assert!(
+        minimal.contains("kept intact") && !minimal.contains("Context compacted"),
+        "the minimal level keeps the dialogue and hides the compaction row:\n{minimal}"
     );
 
     // The expanded frames show the body and metadata; the wrap back to overview re-collapses.

@@ -555,18 +555,17 @@ pub fn render_prompt_context(detail_label: &str, theme: &Theme, width: usize) ->
     vec![Vec::new(), row]
 }
 
-/// The conversation-detail status label: "Expanded" (all output), "Details"
-/// (thinking + diffs), or "Collapsed"; only Expanded flips the key hint to "collapse".
+/// The conversation-detail status label: "Minimal" (dialogue only),
+/// "Collapsed", "Details" (thinking + diffs), or "Expanded" (all output);
+/// only Expanded flips the key hint to "collapse".
 #[must_use]
-pub fn conversation_detail_status(all_output: bool, details: bool, key_display: &str) -> String {
-    let label = if all_output {
-        "Expanded"
-    } else if details {
-        "Details"
-    } else {
-        "Collapsed"
+pub fn conversation_detail_status(detail: crate::chat::Detail, key_display: &str) -> String {
+    let (label, action) = match detail {
+        crate::chat::Detail::Minimal => ("Minimal", "expand"),
+        crate::chat::Detail::Overview => ("Collapsed", "expand"),
+        crate::chat::Detail::Details => ("Details", "expand"),
+        crate::chat::Detail::All => ("Expanded", "collapse"),
     };
-    let action = if all_output { "collapse" } else { "expand" };
     format!("{label} mode ({key_display} to {action})")
 }
 

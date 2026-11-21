@@ -20,14 +20,6 @@ pub(super) fn visible_blocks(message: &AssistantMessage, detail: Detail) -> Vec<
         .collect()
 }
 
-pub(super) fn trailing_space(
-    message: &AssistantMessage,
-    has_visible_content: bool,
-    preceded_by_tool_activity: bool,
-) -> bool {
-    message.has_tool_calls && (has_visible_content || message.aborted || !preceded_by_tool_activity)
-}
-
 /// The cache tag the dim thinking block renders and counts under: one
 /// definition for `chat.rs`'s render call and the count below, so the
 /// rows the paint caches are exactly the rows the count replays.
@@ -110,10 +102,5 @@ pub(crate) fn assistant_row_count(
             width,
         );
     }
-    count
-        + usize::from(trailing_space(
-            message,
-            !blocks.is_empty(),
-            preceded_by_tool_activity,
-        ))
+    count + usize::from(message.has_trailing_space(detail, preceded_by_tool_activity))
 }

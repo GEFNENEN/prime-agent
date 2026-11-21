@@ -513,7 +513,8 @@ pub struct Settings {
     pub thinking_levels: Option<ThinkingLevelsSetting>,
     pub tree_filter_mode: Option<String>,
     /// `chatDetail`: the conversation-detail level Ctrl+O cycles and persists
-    /// ("overview"/"details"/"all"); `None` reads as the `overview` startup level.
+    /// ("minimal"/"overview"/"details"/"all"); `None` reads as the `overview`
+    /// startup level.
     pub chat_detail: Option<String>,
     /// `speedDisplay`: whether the `/speed` footer row is on. `None` reads as
     /// off, the historic startup state; `/speed on` writes `true` here so the

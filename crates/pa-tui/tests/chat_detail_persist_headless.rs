@@ -296,6 +296,7 @@ fn ctrl_o() -> KeyEvent {
 const DETAILS_LABEL: &str = "Details mode (Ctrl+O to expand)";
 const ALL_LABEL: &str = "Expanded mode (Ctrl+O to collapse)";
 const OVERVIEW_LABEL: &str = "Collapsed mode (Ctrl+O to expand)";
+const MINIMAL_LABEL: &str = "Minimal mode (Ctrl+O to expand)";
 
 fn wait_label(label: &str) -> HeadlessStep {
     HeadlessStep::WaitRender {
@@ -371,7 +372,7 @@ fn ctrl_o_pick_persists_and_a_later_chat_reopens_at_it() {
 }
 
 #[test]
-fn the_cycle_saves_the_overview_wrap_too() {
+fn the_cycle_saves_the_minimal_wrap_too() {
     let settings = Arc::new(StubSettings {
         chat_detail: Mutex::new(Some("all".to_string())),
     });
@@ -385,17 +386,48 @@ fn the_cycle_saves_the_overview_wrap_too() {
         vec![
             wait_label(ALL_LABEL),
             HeadlessStep::Key(ctrl_o()),
-            wait_label(OVERVIEW_LABEL),
+            wait_label(MINIMAL_LABEL),
         ],
     );
     let all = frames.join("\n");
     assert!(
-        all.contains(OVERVIEW_LABEL),
-        "ctrl+o wraps all -> overview: {all}"
+        all.contains(MINIMAL_LABEL),
+        "ctrl+o wraps all -> minimal: {all}"
     );
     assert_eq!(
         settings.stored().as_deref(),
-        Some("overview"),
-        "the wrap saves the overview level"
+        Some("minimal"),
+        "the wrap saves the minimal level"
+    );
+}
+
+/// A later chat opens at the persisted minimal level: no Ctrl+O press needed.
+#[test]
+fn a_later_chat_opens_at_the_saved_minimal_level() {
+    let settings = Arc::new(StubSettings {
+        chat_detail: Mutex::new(Some("minimal".to_string())),
+    });
+    let frames = run_plan(
+        settings.clone(),
+        MockSession {
+            active: "s2",
+            wire: "sess-2",
+            name: "minimal session",
+        },
+        vec![wait_label(MINIMAL_LABEL)],
+    );
+    let all = frames.join("\n");
+    assert!(
+        all.contains(MINIMAL_LABEL),
+        "the chat opens at the saved minimal level: {all}"
+    );
+    assert!(
+        !all.contains(OVERVIEW_LABEL) && !all.contains(DETAILS_LABEL),
+        "no other level rendered: {all}"
+    );
+    assert_eq!(
+        settings.stored().as_deref(),
+        Some("minimal"),
+        "opening at the saved level re-saves nothing"
     );
 }
