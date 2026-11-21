@@ -62,10 +62,14 @@ pub(crate) struct Client {
 
 impl Client {
     pub(crate) fn new(config: &Config, bank: &str) -> Client {
-        let http = reqwest::Client::builder()
+        // The shared TLS builder: the `rustls-no-provider` feature every
+        // workspace client enables installs no process-default crypto
+        // provider, so a bare `reqwest::Client::builder()` panics on first
+        // use. `pa-ai`'s builder preconfigures the ring provider.
+        let http = pa_ai::utils::tls::http_client_builder()
             .connect_timeout(Duration::from_secs(2))
             .build()
-            .unwrap_or_else(|_| reqwest::Client::new());
+            .expect("the shared TLS client builds");
         Client {
             http,
             base: config.api_url.trim_end_matches('/').to_string(),

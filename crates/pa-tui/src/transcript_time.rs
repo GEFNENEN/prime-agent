@@ -237,7 +237,7 @@ mod tests {
             .iter()
             .map(|line| line.iter().map(|span| span.content.as_str()).collect())
             .collect();
-        assert!(lines[0].is_empty());
+        assert!(lines[0].is_empty(), "the leading spacer carries no text");
         assert!(
             lines[1].starts_with('['),
             "the stamp leads the first visible row"

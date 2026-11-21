@@ -149,7 +149,10 @@ mod tests {
     fn an_empty_list_hides_everything() {
         let limit = visibility(&[]);
         assert!(!limit.permits("yes/deepseek-v4.1-flash"));
-        assert!(limit.patterns().is_empty());
+        assert!(
+            limit.patterns().is_empty(),
+            "an allow-all limit has no patterns"
+        );
     }
 
     #[test]

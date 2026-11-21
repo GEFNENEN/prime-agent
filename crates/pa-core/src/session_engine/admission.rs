@@ -302,41 +302,9 @@ impl AgentSession {
             // the plain prompt branch below).
             if let Err(error) = self
                 .agent
-                .prompt_until_accepted(pa_agent::agent::AgentPromptInput::Messages(
-                    prompt_messages,
-                ))
-                .await
-            {
-                if !self.agent.state().await.is_streaming {
-                    if let Some(router) = self.image_model_router.as_ref() {
-                        (router.swap_target)(None);
-                        self.agent.set_model_override(None);
-                    }
-                }
-                self.discard_turn_hook_note();
-                return Err(error);
-            }
-        } else if let Err(error) = self
-                .agent
                 .prompt_until_accepted(pa_agent::agent::AgentPromptInput::Messages(prompt_messages))
                 .await
             {
-                // The idle admission can still lose the run slot to a
-                // starting turn: a caller that opted into a streaming
-                // behavior gets the queue, never the rejection. A failure
-                // of a prompt that DID start surfaces unchanged.
-                if is_busy_slot_refusal(&error) {
-                    if let Some(behavior) = options.streaming_behavior {
-                        let mut batch = aux_rows.clone();
-                        batch.push(user_prompt_message(&normalized, &images));
-                        batch.extend(self.normalized_batch_rows(&options.batch, expand));
-                        match behavior {
-                            StreamingBehavior::Steer => self.agent.steer(batch),
-                            StreamingBehavior::FollowUp => self.agent.follow_up(batch),
-                        }
-                        return Ok(PromptOutcome::Queued);
-                    }
-                }
                 if !self.agent.state().await.is_streaming {
                     if let Some(router) = self.image_model_router.as_ref() {
                         (router.swap_target)(None);

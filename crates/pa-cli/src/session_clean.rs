@@ -425,7 +425,10 @@ mod tests {
             ..Options::default()
         };
         let report = plan(dir.path(), &options);
-        assert!(report.empty.is_empty());
+        assert!(
+            report.empty.is_empty(),
+            "a slash-only session is payload, not empty"
+        );
     }
 
     /// A named session carries `session_info`; `/resume` can navigate to it, so
@@ -445,7 +448,10 @@ mod tests {
             min_age_hours: 0,
             ..Options::default()
         };
-        assert!(plan(dir.path(), &keep).empty.is_empty());
+        assert!(
+            plan(dir.path(), &keep).empty.is_empty(),
+            "a named session is kept unless asked"
+        );
 
         let sweep = Options {
             min_age_hours: 0,
@@ -493,7 +499,10 @@ mod tests {
             ..Options::default()
         };
         let report = plan(dir.path(), &options);
-        assert!(report.empty.is_empty());
+        assert!(
+            report.empty.is_empty(),
+            "a malformed line keeps the file, so nothing is empty"
+        );
     }
 
     #[test]

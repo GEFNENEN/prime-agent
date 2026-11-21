@@ -519,7 +519,7 @@ mod tests {
         assert_eq!(targets.len(), 2);
         let (removed, failed) = remove_targets(&targets);
         assert_eq!(removed.len(), 2);
-        assert!(failed.is_empty());
+        assert!(failed.is_empty(), "no cleanup failed: {failed:?}");
         assert!(!payload.exists());
         assert!(!manifest.exists());
         assert!(unrelated.exists());

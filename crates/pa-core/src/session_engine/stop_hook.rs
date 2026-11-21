@@ -395,7 +395,10 @@ mod tests {
             "kind": "notice",
         }))
         .unwrap();
-        assert!(adapter_lines(&[custom]).is_empty());
+        assert!(
+            adapter_lines(&[custom]).is_empty(),
+            "a custom-only run emits no adapter lines"
+        );
     }
 
     #[test]
