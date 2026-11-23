@@ -19,6 +19,7 @@ fn key_display(kb: &KeybindingsManager, id: &str) -> String {
 pub fn hotkeys_guide(kb: &KeybindingsManager) -> String {
     let cursor_up = key_display(kb, "tui.editor.cursorUp");
     let cursor_down = key_display(kb, "tui.editor.cursorDown");
+    let history_search = key_display(kb, "tui.editor.historySearch");
     let cursor_left = key_display(kb, "tui.editor.cursorLeft");
     let cursor_right = key_display(kb, "tui.editor.cursorRight");
     let cursor_word_left = key_display(kb, "tui.editor.cursorWordLeft");
@@ -86,6 +87,7 @@ pub fn hotkeys_guide(kb: &KeybindingsManager) -> String {
 | Key | Action |
 |-----|--------|
 | `{cursor_up}` / `{cursor_down}` / `{cursor_left}` / `{cursor_right}` | Move cursor / browse history (Up when empty) |
+| `{history_search}` | Search prompt history backwards |
 | `{cursor_word_left}` / `{cursor_word_right}` | Move by word |
 | `{cursor_line_start}` | Start of line |
 | `{cursor_line_end}` | End of line |

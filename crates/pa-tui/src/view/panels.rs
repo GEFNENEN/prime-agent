@@ -86,28 +86,33 @@ impl AgentView {
         width: usize,
         dock_row: usize,
     ) -> (Vec<Line>, Option<(usize, usize)>) {
-        // The queue-browse header (while a parked message is selected): the dim
-        // browse text on the editor background, from the shared box's header block.
-        let header = self.queue_selected.as_ref().map(|selected| {
-            let keys = {
-                let kb = self.editor.keybindings();
-                let display =
-                    |id: &str| crate::keybindings::format_key_text(&kb.get_keys(id).join("/"));
-                crate::queued::QueueBrowseKeys {
-                    navigate_older: display("app.message.navigateOlder"),
-                    navigate_newer: display("app.message.navigateNewer"),
-                    move_earlier: display("app.message.moveEarlier"),
-                    move_later: display("app.message.moveLater"),
-                    follow_up: display("app.message.followUp"),
-                }
-            };
-            let dim = crate::chrome::editor_background(&self.theme)
-                .patch(self.theme.fg_style(ThemeColor::Dim));
-            vec![Span::styled(
-                crate::queued::browse_header_text(selected, &keys),
-                dim,
-            )]
-        });
+        // The queue-browse header (while a parked message is selected) or the
+        // reverse history search header: the dim text on the editor background,
+        // from the shared box's header block.
+        let header_style = crate::chrome::editor_background(&self.theme)
+            .patch(self.theme.fg_style(ThemeColor::Dim));
+        let header = if let Some(header) = self.editor.history_search_header() {
+            Some(vec![Span::styled(header, header_style)])
+        } else {
+            self.queue_selected.as_ref().map(|selected| {
+                let keys = {
+                    let kb = self.editor.keybindings();
+                    let display =
+                        |id: &str| crate::keybindings::format_key_text(&kb.get_keys(id).join("/"));
+                    crate::queued::QueueBrowseKeys {
+                        navigate_older: display("app.message.navigateOlder"),
+                        navigate_newer: display("app.message.navigateNewer"),
+                        move_earlier: display("app.message.moveEarlier"),
+                        move_later: display("app.message.moveLater"),
+                        follow_up: display("app.message.followUp"),
+                    }
+                };
+                vec![Span::styled(
+                    crate::queued::browse_header_text(selected, &keys),
+                    header_style,
+                )]
+            })
+        };
         let surface = editor_surface::render(
             &mut self.editor,
             &self.theme,

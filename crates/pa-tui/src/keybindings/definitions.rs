@@ -10,6 +10,10 @@ pub const TUI_KEYBINDINGS: &[(&str, KeybindingDefinition)] = &[
         def!(&["down"], "Move cursor down", scope "editor"),
     ),
     (
+        "tui.editor.historySearch",
+        def!(&["ctrl+r"], "Search prompt history backwards", scope "editor"),
+    ),
+    (
         "tui.editor.cursorLeft",
         def!(&["left", "ctrl+b"], "Move cursor left", scope "editor"),
     ),

@@ -474,6 +474,16 @@ impl SessionUi {
             self.handle_clipboard_image_paste(view).await;
             return Ok(());
         }
+        // The reverse history search owns Escape: closing it must not run the
+        // clear/interrupt ladder.
+        if view.editor.is_history_search_active()
+            && view.editor.keybindings().matches(&id, "app.input.clear")
+        {
+            view.editor.cancel_history_search();
+            self.clear_ctrl_c_hint();
+            self.dirty = true;
+            return Ok(());
+        }
         if view.editor.keybindings().matches(&id, "app.input.clear") {
             // The completion surface consumes Esc: the open dropdown closes and the abort ladder
             // never runs — closing a menu must not abort a running turn (deliberate divergence: the
@@ -548,6 +558,13 @@ impl SessionUi {
         // second-press exit is ctrl+c's alone.
         let interrupt = view.editor.keybindings().matches(&id, "app.interrupt");
         if interrupt || view.editor.keybindings().matches(&id, "app.clear") {
+            // Ctrl+C cancels the search without aborting the turn.
+            if view.editor.is_history_search_active() {
+                view.editor.cancel_history_search();
+                self.clear_ctrl_c_hint();
+                self.dirty = true;
+                return Ok(());
+            }
             if view.editor.is_showing_autocomplete() {
                 view.editor.cancel_autocomplete();
                 self.clear_ctrl_c_hint();
@@ -851,6 +868,7 @@ impl SessionUi {
             .matches(&id, "tui.editor.cursorDown")
             && !view.editor.is_showing_autocomplete()
             && !view.editor.is_history_navigation_active()
+            && !view.editor.is_history_search_active()
             && view.editor.is_cursor_at_end()
             && self.focus_subagents_summary(&DockFocusSource::PromptDown, view)
         {
@@ -971,6 +989,7 @@ pub(crate) fn opening_echo_key_claimed(
     kb.matches(id, "tui.editor.cursorDown")
         && !editor.is_showing_autocomplete()
         && !editor.is_history_navigation_active()
+        && !editor.is_history_search_active()
         && editor.is_cursor_at_end()
 }
 

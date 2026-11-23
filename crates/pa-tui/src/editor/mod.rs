@@ -55,6 +55,15 @@ struct EditorSnapshot {
     selection_anchor: Option<(usize, usize)>,
 }
 
+/// A reverse history search in progress: the query, the matching history
+/// index (0 = newest), and the draft Escape restores.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct HistorySearch {
+    query: String,
+    match_index: Option<usize>,
+    draft: String,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PasteDisposition {
     /// Paste applied inline (content merged into the buffer).
@@ -100,6 +109,7 @@ pub struct Editor {
     paste_counter: usize,
     history: Vec<String>,
     history_index: isize,
+    history_search: Option<HistorySearch>,
     kill_ring: KillRing,
     undo_stack: Vec<EditorSnapshot>,
     redo_stack: Vec<EditorSnapshot>,
@@ -163,6 +173,7 @@ impl Editor {
             paste_counter: 0,
             history: Vec::new(),
             history_index: -1,
+            history_search: None,
             kill_ring: KillRing::default(),
             undo_stack: Vec::new(),
             redo_stack: Vec::new(),
@@ -398,6 +409,7 @@ impl Editor {
         self.cancel_autocomplete();
         self.last_action = None;
         self.history_index = -1;
+        self.history_search = None;
         let normalized = normalize_text(text);
         if self.get_text() != normalized {
             self.push_undo_snapshot();
@@ -491,6 +503,106 @@ impl Editor {
     #[must_use]
     pub fn is_history_navigation_active(&self) -> bool {
         self.history_index > -1
+    }
+
+    /// Enter reverse history search with an empty query (the newest entry).
+    /// The draft is snapshotted once, so Escape can restore it.
+    fn begin_history_search(&mut self) {
+        self.cancel_autocomplete();
+        self.jump_mode = None;
+        self.push_undo_snapshot();
+        self.history_search = Some(HistorySearch {
+            query: String::new(),
+            match_index: None,
+            draft: self.get_text(),
+        });
+        self.cycle_history_search();
+    }
+
+    /// Move to the next older entry containing the query. An empty query
+    /// matches every entry, so the first press shows the newest.
+    fn cycle_history_search(&mut self) {
+        let text = {
+            let Some(search) = self.history_search.as_ref() else {
+                return;
+            };
+            let start = search.match_index.map_or(0, |index| index + 1);
+            let needle = search.query.to_lowercase();
+            let Some(index) = (start..self.history.len())
+                .find(|&index| self.history[index].to_lowercase().contains(&needle))
+            else {
+                return;
+            };
+            if let Some(search) = self.history_search.as_mut() {
+                search.match_index = Some(index);
+            }
+            self.history[index].clone()
+        };
+        self.set_text_internal(&text);
+    }
+
+    /// Replace the query and show the newest match; a query with no match
+    /// restores the draft so the prompt never holds a stale hit.
+    fn update_history_search(&mut self, query: String) {
+        if let Some(search) = self.history_search.as_mut() {
+            search.query = query;
+            search.match_index = None;
+        }
+        self.cycle_history_search();
+        let no_match = self
+            .history_search
+            .as_ref()
+            .is_some_and(|search| search.match_index.is_none());
+        if no_match {
+            let draft = self
+                .history_search
+                .as_ref()
+                .map(|search| search.draft.clone());
+            if let Some(draft) = draft {
+                self.set_text_internal(&draft);
+            }
+        }
+    }
+
+    fn backspace_history_search(&mut self) {
+        let Some(search) = self.history_search.as_ref() else {
+            return;
+        };
+        if search.query.is_empty() {
+            self.cancel_history_search();
+            return;
+        }
+        let mut query = search.query.clone();
+        query.pop();
+        self.update_history_search(query);
+    }
+
+    /// Keep the shown match and close the search.
+    fn accept_history_search(&mut self) {
+        self.history_search = None;
+    }
+
+    /// Leave the search and restore the draft that preceded it.
+    pub(crate) fn cancel_history_search(&mut self) {
+        if let Some(search) = self.history_search.take() {
+            self.set_text_internal(&search.draft);
+        }
+    }
+
+    #[must_use]
+    pub fn is_history_search_active(&self) -> bool {
+        self.history_search.is_some()
+    }
+
+    /// The prompt header while the search is open, `None` otherwise.
+    #[must_use]
+    pub fn history_search_header(&self) -> Option<String> {
+        let search = self.history_search.as_ref()?;
+        let mut header = format!("(reverse-i-search)`{}':", search.query);
+        if search.match_index.is_none() {
+            header.push_str(" [no match]");
+        }
+        Some(header)
     }
 
     fn push_undo_snapshot(&mut self) {
@@ -1088,6 +1200,65 @@ mod tests {
         e.handle_input("down");
         assert_eq!(e.get_text(), "");
         assert!(!e.is_history_navigation_active());
+    }
+
+    #[test]
+    fn reverse_history_search_filters_and_cycles() {
+        let mut e = ed();
+        e.add_to_history("newest command");
+        e.add_to_history("older command");
+        e.add_to_history("build --release");
+        e.set_text("draft");
+        e.handle_input("ctrl+r");
+        assert!(e.is_history_search_active());
+        assert_eq!(e.get_text(), "build --release");
+        e.handle_input("o");
+        assert_eq!(e.get_text(), "older command");
+        e.handle_input("l");
+        assert_eq!(e.get_text(), "older command");
+        // No older entry contains "ol": the shown match stays.
+        e.handle_input("ctrl+r");
+        assert_eq!(e.get_text(), "older command");
+        e.handle_input("escape");
+        assert!(!e.is_history_search_active());
+        assert_eq!(e.get_text(), "draft");
+    }
+
+    #[test]
+    fn reverse_history_search_enter_accepts_without_submitting() {
+        let mut e = ed();
+        e.add_to_history("run the tests");
+        e.set_text("draft");
+        e.handle_input("ctrl+r");
+        let _ = e.take_events();
+        e.handle_input("enter");
+        assert!(!e.is_history_search_active());
+        assert_eq!(e.get_text(), "run the tests");
+        let submitted = e
+            .take_events()
+            .into_iter()
+            .any(|event| matches!(event, EditorEvent::Submitted(_)));
+        assert!(!submitted, "the first Enter only accepts the search");
+    }
+
+    #[test]
+    fn reverse_history_search_reports_no_match_and_restores_the_draft() {
+        let mut e = ed();
+        e.add_to_history("run the tests");
+        e.set_text("draft");
+        e.handle_input("ctrl+r");
+        e.handle_input("z");
+        assert_eq!(e.get_text(), "draft");
+        assert_eq!(
+            e.history_search_header().as_deref(),
+            Some("(reverse-i-search)`z': [no match]")
+        );
+        e.handle_input("backspace");
+        assert_eq!(e.get_text(), "run the tests");
+        assert_eq!(
+            e.history_search_header().as_deref(),
+            Some("(reverse-i-search)`':")
+        );
     }
 
     #[test]

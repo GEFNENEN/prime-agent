@@ -22,7 +22,54 @@ impl Editor {
         self.keybindings.matches(input, binding)
     }
 
+    /// Keys while reverse history search owns the prompt: Ctrl+R cycles,
+    /// Backspace edits the query, Escape/Ctrl+C restore the draft, Enter
+    /// accepts, and printable keys extend the query. Any other key accepts
+    /// the search and falls through to normal editing.
+    fn handle_history_search_key(&mut self, input: &str) -> bool {
+        if self.kb_matches(input, "tui.editor.historySearch") {
+            self.cycle_history_search();
+            return true;
+        }
+        if self.kb_matches(input, "tui.editor.deleteCharBackward") {
+            self.backspace_history_search();
+            return true;
+        }
+        if self.kb_matches(input, "app.input.clear")
+            || self.kb_matches(input, "app.clear")
+            || self.kb_matches(input, "app.interrupt")
+        {
+            self.cancel_history_search();
+            return true;
+        }
+        if self.kb_matches(input, "tui.input.submit") || self.kb_matches(input, "tui.input.newLine")
+        {
+            self.accept_history_search();
+            return true;
+        }
+        if let Some(printable) = decode_printable(input) {
+            let query = self
+                .history_search
+                .as_ref()
+                .map(|search| format!("{}{printable}", search.query))
+                .unwrap_or_default();
+            self.update_history_search(query);
+            return true;
+        }
+        self.accept_history_search();
+        false
+    }
+
     fn handle_input_inner(&mut self, input: &str) {
+        if self.history_search.is_some() {
+            if self.handle_history_search_key(input) {
+                return;
+            }
+        } else if self.kb_matches(input, "tui.editor.historySearch") {
+            self.begin_history_search();
+            return;
+        }
+
         if let Some(direction) = self.jump_mode {
             if self.kb_matches(input, "tui.editor.jumpForward")
                 || self.kb_matches(input, "tui.editor.jumpBackward")
