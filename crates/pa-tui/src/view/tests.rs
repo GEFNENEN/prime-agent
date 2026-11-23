@@ -1485,7 +1485,9 @@ fn action_toasts_render_as_a_pill_coalesce_and_auto_dismiss() {
             .collect(),
     );
     view.toasts.push("Copied to clipboard");
-    let frame = view.render_frame(60, 24);
+    // Three rows taller than the default frame: with the four-row top bar
+    // the transcript window keeps the height the one-row bar had.
+    let frame = view.render_frame(60, 27);
     let rows: Vec<String> = frame
         .iter()
         .map(|line| line.iter().map(|span| span.content.as_str()).collect())
@@ -1494,9 +1496,8 @@ fn action_toasts_render_as_a_pill_coalesce_and_auto_dismiss() {
         .iter()
         .position(|row| row.contains("Copied to clipboard"))
         .expect("the toast renders");
-    // Right-aligned: the top bar stays above the overlay (fullscreen:
-    // row 0).
-    assert!(toast_row >= 1, "the toast sits below the top bar");
+    // Right-aligned: the four-row top bar stays above the overlay.
+    assert!(toast_row >= 4, "the toast sits below the top bar");
     assert!(
         rows[toast_row].contains("covered line"),
         "the covered row keeps its content: {:?}",

@@ -1,5 +1,6 @@
 use super::*;
 use crate::chat::{AssistantMessage, Detail, MessageBlock, StatusKind};
+use crate::selection::HEADER_ROWS;
 use crate::theme::{ColorMode, Theme};
 
 fn view() -> AgentView {
@@ -204,8 +205,8 @@ fn cold_tail_detail_cycles_and_nearby_scroll_are_bounded_for_100k_entries() {
     ENTRY_RENDERS.with(|count| count.set(0));
     view.render_frame(80, 24);
     assert_eq!(ENTRY_RENDERS.with(std::cell::Cell::get), 0);
-    assert!(view.begin_selection(2, 0));
-    view.extend_active_selection(5, 8);
+    assert!(view.begin_selection(HEADER_ROWS, 0));
+    view.extend_active_selection(HEADER_ROWS + 3, 8);
     ENTRY_RENDERS.with(|count| count.set(0));
     view.render_frame(80, 24);
     view.scroll_selection(-1, 0);
@@ -217,8 +218,8 @@ fn cold_tail_detail_cycles_and_nearby_scroll_are_bounded_for_100k_entries() {
     ENTRY_VISITS.with(|count| count.set(0));
     view.render_frame(80, 24);
     assert!(ENTRY_VISITS.with(std::cell::Cell::get) < 30);
-    assert!(view.begin_selection(2, 0));
-    view.extend_active_selection(5, 8);
+    assert!(view.begin_selection(HEADER_ROWS, 0));
+    view.extend_active_selection(HEADER_ROWS + 3, 8);
     ENTRY_VISITS.with(|count| count.set(0));
     view.render_frame(80, 24);
     view.scroll_selection(-1, 0);
@@ -430,8 +431,8 @@ fn same_window_copy_is_bounded_for_100k_entries() {
         });
     }
     view.render_frame(80, 24);
-    assert!(view.begin_selection(2, 0));
-    view.extend_active_selection(5, 80);
+    assert!(view.begin_selection(HEADER_ROWS, 0));
+    view.extend_active_selection(HEADER_ROWS + 3, 80);
     ENTRY_VISITS.with(|count| count.set(0));
     ENTRY_RENDERS.with(|count| count.set(0));
     assert!(view.end_active_selection().is_some());
@@ -655,18 +656,18 @@ fn a_push_after_a_user_row_folds_at_its_own_slot() {
             kind: StatusKind::Info,
         });
     }
-    view.render_frame(80, 12);
+    view.render_frame(80, 20);
     view.scroll_by(-6);
-    let frame = view.render_frame(80, 12);
-    let row = (1..=view.window_rows)
+    let frame = view.render_frame(80, 20);
+    let row = (HEADER_ROWS..HEADER_ROWS + view.window_rows)
         .find(|row| row_text(&frame, *row).contains("original"))
         .unwrap();
     assert!(view.begin_selection(row, 0));
     view.extend_active_selection(row, 80);
     let expected = row_text(&frame, row).trim_end().to_string();
     view.push_entry(card("z0"));
-    view.render_frame(80, 12);
-    view.render_frame(80, 12);
+    view.render_frame(80, 20);
+    view.render_frame(80, 20);
     assert_eq!(
         view.end_active_selection(),
         Some(expected),
@@ -760,16 +761,16 @@ fn a_card_push_folds_at_the_pushed_slot() {
     for index in 0..1 {
         view.push_entry(card(&format!("a{index}")));
     }
-    let frame = view.render_frame(80, 12);
-    let row = (1..=view.window_rows)
+    let frame = view.render_frame(80, 24);
+    let row = (HEADER_ROWS..HEADER_ROWS + view.window_rows)
         .find(|row| row_text(&frame, *row).contains("out a0"))
         .unwrap();
     assert!(view.begin_selection(row, 0));
     view.extend_active_selection(row, 80);
     let expected = row_text(&frame, row).trim_end().to_string();
     view.push_entry(card("a1"));
-    view.render_frame(80, 12);
-    view.render_frame(80, 12);
+    view.render_frame(80, 24);
+    view.render_frame(80, 24);
     assert_eq!(
         view.end_active_selection(),
         Some(expected),
@@ -818,8 +819,8 @@ fn a_card_growth_folds_at_its_own_slot() {
     for index in 0..2 {
         view.push_entry(card(&format!("b{index}")));
     }
-    let frame = view.render_frame(80, 12);
-    let row = (1..=view.window_rows)
+    let frame = view.render_frame(80, 24);
+    let row = (HEADER_ROWS..HEADER_ROWS + view.window_rows)
         .find(|row| row_text(&frame, *row).contains("out b1"))
         .unwrap();
     assert!(view.begin_selection(row, 0));
@@ -837,8 +838,8 @@ fn a_card_growth_folds_at_its_own_slot() {
         });
     }
     view.mark_entry_stale(31);
-    view.render_frame(80, 12);
-    view.render_frame(80, 12);
+    view.render_frame(80, 24);
+    view.render_frame(80, 24);
     assert_eq!(
         view.end_active_selection(),
         Some(expected),
@@ -892,7 +893,7 @@ fn a_card_pop_folds_at_the_popped_slot() {
     let frame = view.render_frame(80, 30);
     // The selection sits on a card ABOVE the popped one (the popped
     // card's own content vanishes with it).
-    let row = (1..=view.window_rows)
+    let row = (HEADER_ROWS..HEADER_ROWS + view.window_rows)
         .find(|row| row_text(&frame, *row).contains("out b0"))
         .unwrap();
     assert!(view.begin_selection(row, 0));
@@ -939,7 +940,7 @@ fn a_replayed_result_into_a_pending_card_folds_its_row_delta() {
         view.push_entry(queued_card(&format!("b{index}")));
     }
     let frame = view.render_frame(80, 12);
-    let row = (1..=view.window_rows)
+    let row = (HEADER_ROWS..HEADER_ROWS + view.window_rows)
         .find(|row| row_text(&frame, *row).contains("out b1"))
         .unwrap();
     assert!(view.begin_selection(row, 0));
@@ -1059,10 +1060,10 @@ fn an_assistant_growth_folds_at_its_own_slot() {
             kind: StatusKind::Info,
         });
     }
-    view.render_frame(80, 12);
+    view.render_frame(80, 20);
     view.scroll_by(-6);
-    let frame = view.render_frame(80, 12);
-    let row = (1..=view.window_rows)
+    let frame = view.render_frame(80, 20);
+    let row = (HEADER_ROWS..HEADER_ROWS + view.window_rows)
         .find(|row| row_text(&frame, *row).contains("original"))
         .unwrap();
     assert!(view.begin_selection(row, 0));
@@ -1075,8 +1076,8 @@ fn an_assistant_growth_folds_at_its_own_slot() {
             .push(MessageBlock::Text("grown words\nmore words".into()));
     }
     view.mark_entry_stale(5);
-    view.render_frame(80, 12);
-    view.render_frame(80, 12);
+    view.render_frame(80, 20);
+    view.render_frame(80, 20);
     assert_eq!(
         view.end_active_selection(),
         Some(expected),

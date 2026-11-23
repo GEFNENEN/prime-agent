@@ -123,8 +123,8 @@ mod tests {
         view.visible_transcript_window(100, 30)
     }
 
-    /// The screen row holding a needle (screen geometry): one header
-    /// row above the window, so the window index plus one.
+    /// The screen row holding a needle (screen geometry): the four-row
+    /// top bar above the window, so the window index plus its height.
     fn row_of(view: &mut AgentView, needle: &str) -> usize {
         let (base, _) = base_rows(view);
         (0..base.len())
@@ -133,7 +133,7 @@ mod tests {
                     .iter()
                     .any(|span| span.content.contains(needle))
             })
-            .map(|index| index + 1)
+            .map(|index| index + crate::selection::HEADER_ROWS)
             .expect("the needle renders in the window")
     }
 

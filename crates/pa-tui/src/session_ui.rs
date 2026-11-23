@@ -578,9 +578,10 @@ impl SessionUi {
             .unwrap_or_else(|| crate::chrome::UNNAMED_SESSION.to_string())
     }
 
-    /// Install the top bar's `name (session dir, cwd)` label: the directory the
-    /// session was created in beside the terminal's own cwd, which the bar
-    /// marks red once the two diverge (an attach from another shell).
+    /// Install the top bar's four rows: the session name, the directory the
+    /// session was created in, the terminal's own cwd (red once the two
+    /// diverge, an attach from another shell), and the session directory's
+    /// git branch.
     pub(crate) fn sync_chat_label(&mut self, view: &mut AgentView) {
         view.chrome.chat_name = self.session_label();
         view.chrome.chat_path = Some(crate::chrome::ChatPath {

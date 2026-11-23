@@ -8,7 +8,9 @@ use crate::width::{char_width, line_width, slice_line_by_column};
 use crate::{Line, Span};
 use ratatui::style::{Modifier, Style};
 
-pub(crate) const HEADER_ROWS: usize = 1;
+/// The pinned top bar's four-row height: screen rows from here down are
+/// the transcript window (selection coordinates subtract it).
+pub(crate) const HEADER_ROWS: usize = 4;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct SelectionPoint {
@@ -642,8 +644,8 @@ mod tests {
         row_text(frame.get(row).map_or(&[], Vec::as_slice))
     }
 
-    /// A transcript window row: the top bar sits at row 0, so the first
-    /// transcript line lands at row 1.
+    /// A transcript window row: the top bar occupies rows 0-3, so the
+    /// first transcript line lands at row 4.
     #[test]
     fn drag_across_one_transcript_row_copies_it() {
         let mut v = view();
@@ -651,7 +653,7 @@ mod tests {
             text: "select this line".to_string(),
         });
         let frame = v.render_frame(80, 12);
-        let row = (1..frame.len())
+        let row = (HEADER_ROWS..frame.len())
             .find(|row| rendered_row(&frame, *row).contains("select this line"))
             .expect("the user row rendered");
         let col = rendered_row(&frame, row)
@@ -683,8 +685,8 @@ mod tests {
             text: "second row".to_string(),
             kind: crate::chat::StatusKind::Info,
         });
-        let frame = v.render_frame(80, 12);
-        let first = (1..frame.len())
+        let frame = v.render_frame(80, 20);
+        let first = (HEADER_ROWS..frame.len())
             .find(|row| rendered_row(&frame, *row).contains("first row"))
             .expect("first row rendered");
         let second = (first..frame.len())
@@ -693,7 +695,7 @@ mod tests {
         assert!(v.begin_selection(first, 3));
         v.extend_active_selection(second, 9);
         // The press's draw records the transcript text the release copies.
-        v.render_frame(80, 12);
+        v.render_frame(80, 20);
         let text = v.end_active_selection().expect("copied text");
         // Every line in the range copies its column slice, trailing whitespace trimmed: first row
         // from the anchor column, spacer rows as empty lines, last row up to the head column.
@@ -735,7 +737,7 @@ mod tests {
             });
         }
         let frame = v.render_frame(80, 12);
-        let row = (1..=v.window_rows)
+        let row = (HEADER_ROWS..HEADER_ROWS + v.window_rows)
             .find(|row| rendered_row(&frame, *row).contains("original"))
             .unwrap();
         assert!(v.begin_selection(row, 0));
@@ -764,7 +766,7 @@ mod tests {
             kind: crate::chat::StatusKind::Info,
         });
         let frame = v.render_frame(80, 30);
-        let row = (1..=v.window_rows)
+        let row = (HEADER_ROWS..HEADER_ROWS + v.window_rows)
             .find(|row| rendered_row(&frame, *row).contains("short transcript"))
             .unwrap();
         v.scroll_to_top();
@@ -800,7 +802,7 @@ mod tests {
             },
         )));
         let frame = v.render_frame(80, 20);
-        let row = (1..=v.window_rows)
+        let row = (HEADER_ROWS..HEADER_ROWS + v.window_rows)
             .find(|row| rendered_row(&frame, *row).contains("original"))
             .unwrap();
         assert!(v.begin_selection(row, 0));
@@ -828,7 +830,7 @@ mod tests {
             });
         }
         let frame = v.render_frame(80, 12);
-        let row = (1..=v.window_rows)
+        let row = (HEADER_ROWS..HEADER_ROWS + v.window_rows)
             .find(|row| rendered_row(&frame, *row).contains("original"))
             .unwrap();
         assert!(v.begin_selection(row, 0));
@@ -857,11 +859,11 @@ mod tests {
         }
         let reference =
             crate::image_component::with_fullscreen_image_fallback(|| oracle.render_transcript(80));
-        v.render_frame(80, 12);
-        assert!(v.begin_selection(2, 0));
-        v.extend_active_selection(4, 80);
+        v.render_frame(80, 20);
+        assert!(v.begin_selection(HEADER_ROWS, 0));
+        v.extend_active_selection(HEADER_ROWS + 2, 80);
         v.scroll_by(-3);
-        v.extend_active_selection(2, 0);
+        v.extend_active_selection(HEADER_ROWS, 0);
         let (mut start, mut end) = ordered_selection(v.selection.anchor, v.selection.head).unwrap();
         start.line = reference.len() - (crate::view::lazy::TAIL_SELECTION_ORIGIN - start.line);
         end.line = reference.len() - (crate::view::lazy::TAIL_SELECTION_ORIGIN - end.line);
@@ -886,16 +888,16 @@ mod tests {
             let reference = crate::image_component::with_fullscreen_image_fallback(|| {
                 oracle.render_transcript(80)
             });
-            v.render_frame(80, 12);
+            v.render_frame(80, 20);
             if reverse {
                 v.scroll_by(-50);
-                v.render_frame(80, 12);
+                v.render_frame(80, 20);
             }
-            assert!(v.begin_selection(2, 2));
+            assert!(v.begin_selection(HEADER_ROWS, 2));
             v.scroll_by(if reverse { 35 } else { -35 });
-            v.render_frame(80, 12);
-            v.render_frame(80, 12);
-            v.extend_active_selection(4, 10);
+            v.render_frame(80, 20);
+            v.render_frame(80, 20);
+            v.extend_active_selection(HEADER_ROWS + 2, 10);
             let (mut start, mut end) =
                 ordered_selection(v.selection.anchor, v.selection.head).unwrap();
             start.line = reference.len() - (crate::view::lazy::TAIL_SELECTION_ORIGIN - start.line);
@@ -918,14 +920,14 @@ mod tests {
                 kind: crate::chat::StatusKind::Info,
             });
         }
-        v.render_frame(80, 12);
+        v.render_frame(80, 20);
         v.scroll_to_top();
-        v.render_frame(80, 12);
-        assert!(v.begin_selection(2, 2));
+        v.render_frame(80, 20);
+        assert!(v.begin_selection(HEADER_ROWS, 2));
         let start = v.selection.anchor.unwrap();
         v.scroll_by(180);
-        v.render_frame(80, 12);
-        v.extend_active_selection(3, 10);
+        v.render_frame(80, 20);
+        v.extend_active_selection(HEADER_ROWS + 1, 10);
         let end = v.selection.head.unwrap();
         let reference =
             crate::image_component::with_fullscreen_image_fallback(|| v.render_transcript(80));
@@ -949,7 +951,7 @@ mod tests {
         let mut v = view();
         let frame = v.render_frame(80, 12);
         // The editor's prompt row sits in the dock; find its content.
-        let (row, col) = (1..frame.len())
+        let (row, col) = (HEADER_ROWS..frame.len())
             .filter_map(|row| {
                 let text = rendered_row(&frame, row);
                 let content = text.trim();
@@ -975,7 +977,7 @@ mod tests {
         let mut v = view();
         let frame = v.render_frame(80, 40);
         // The blank padding between the window and the dock has no regions.
-        let blank = (1..frame.len())
+        let blank = (HEADER_ROWS..frame.len())
             .find(|row| rendered_row(&frame, *row).trim().is_empty())
             .expect("a blank row");
         assert!(!v.begin_frame_selection(blank, 2));
@@ -993,10 +995,10 @@ mod tests {
                 kind: crate::chat::StatusKind::Info,
             });
         }
-        v.render_frame(80, 12);
+        v.render_frame(80, 20);
         // Pause the tail so both edges have scroll room.
         v.scroll_by(-4);
-        v.render_frame(80, 12);
+        v.render_frame(80, 20);
         let (first, last) = (HEADER_ROWS, HEADER_ROWS + v.window_rows - 1);
         assert_eq!(v.selection_auto_scroll_direction(first), None);
         assert!(v.begin_selection(last - 1, 1));
@@ -1021,15 +1023,15 @@ mod tests {
                 kind: crate::chat::StatusKind::Info,
             });
         }
-        v.render_frame(80, 12);
+        v.render_frame(80, 20);
         // Pause the tail so scrolling down has room.
         v.scroll_by(-4);
-        v.render_frame(80, 12);
+        v.render_frame(80, 20);
         let last = HEADER_ROWS + v.window_rows - 1;
         assert!(v.begin_selection(HEADER_ROWS + 1, 0));
         v.extend_active_selection(last, 0);
         // The press's draw records the transcript text the release copies.
-        v.render_frame(80, 12);
+        v.render_frame(80, 20);
         let before = v.selection_window_start();
         assert!(v.scroll_selection(1, 0));
         assert_eq!(

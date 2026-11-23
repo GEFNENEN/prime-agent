@@ -369,9 +369,13 @@ impl AgentView {
             self.resolve_tail_selection(total);
         }
         self.last_max_scroll = total.saturating_sub(self.window_rows);
-        self.scroll_top = match window.anchor {
-            Anchor::Tail(distance) => self.last_max_scroll.saturating_sub(distance),
-            Anchor::Top(offset) => offset.min(self.last_max_scroll),
+        self.scroll_top = if self.following {
+            self.last_max_scroll
+        } else {
+            match window.anchor {
+                Anchor::Tail(distance) => self.last_max_scroll.saturating_sub(distance),
+                Anchor::Top(offset) => offset.min(self.last_max_scroll),
+            }
         };
     }
 

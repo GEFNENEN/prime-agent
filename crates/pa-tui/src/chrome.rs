@@ -59,10 +59,11 @@ pub struct ChromeState {
     pub extra_metadata: Vec<(String, String)>,
     /// Top-bar chat label: the session name, or [`UNNAMED_SESSION`].
     pub chat_name: String,
-    /// The label's `(session dir, cwd)` suffix: `None` renders the bare label.
+    /// The session's fixed project directory and the terminal's live cwd,
+    /// each on its own labeled bar row; `None` renders `-` for both.
     pub chat_path: Option<ChatPath>,
-    /// The session directory's git branch (`⑂branch` after the path group):
-    /// `None` outside a repository or when the bar has no room.
+    /// The session directory's git branch, on its own labeled bar row;
+    /// `None` renders `no git repository`.
     pub git_branch: Option<String>,
     /// Session spend (USD) beside the chat name: the family rollup (the
     /// session's spend plus every subagent descendant's).
@@ -357,8 +358,9 @@ pub fn truncate_path_middle(value: &str, width: usize) -> String {
     truncate_to_width(&candidate, width, "…")
 }
 
-/// The pinned top bar: `name (session dir, cwd)` centered, spend beside it.
-pub fn render_top_bar(state: &ChromeState, theme: &Theme, width: usize) -> Line {
+/// The pinned top bar: four rows — the session name and spend, the project
+/// directory, the terminal's cwd, and the git branch.
+pub fn render_top_bar(state: &ChromeState, theme: &Theme, width: usize) -> Vec<Line> {
     let name = state
         .chat_name
         .chars()
@@ -367,81 +369,78 @@ pub fn render_top_bar(state: &ChromeState, theme: &Theme, width: usize) -> Line 
         .replace(char::is_whitespace, " ")
         .trim()
         .to_string();
-    if name.is_empty() {
-        return Vec::new();
-    }
+    let name = if name.is_empty() {
+        UNNAMED_SESSION.to_string()
+    } else {
+        name
+    };
     let text = theme.fg_style(ThemeColor::Text);
     let dim = theme.fg_style(ThemeColor::Dim);
+    let muted = theme.fg_style(ThemeColor::Muted);
     let drifted = theme.fg_style(ThemeColor::Error);
     let cost = state
         .cost_usd
         .filter(|cost| *cost >= 0.0)
         .map(|cost| format!("${cost:.2}"));
-    // The two-space gap before the spend rides outside the centering.
-    let cost_width = cost.as_ref().map_or(0, |cost| 2 + str_width(cost.as_str()));
-    let available = width
-        .saturating_sub(cost_width)
-        .saturating_sub(str_width(&name));
-    // " (" + ", " + ")": the punctuation around the two paths.
-    let budget = available.saturating_sub(5);
-    let path = state
-        .chat_path
-        .as_ref()
-        .filter(|_| budget >= 16)
-        .map(|path| {
-            let home =
-                pa_types::platform::home_dir().map(|home| home.to_string_lossy().into_owned());
-            let session_dir = truncate_path_middle(
-                &format_splash_cwd(&path.session_dir, home.as_deref()),
-                budget / 2,
-            );
-            let cwd = truncate_path_middle(
-                &format_splash_cwd(&path.cwd, home.as_deref()),
-                budget - budget / 2,
-            );
-            (session_dir, cwd, path.diverged())
-        });
-    let base_label_width = str_width(&name)
-        + path
-            .as_ref()
-            .map_or(0, |(dir, cwd, _)| 5 + str_width(dir) + str_width(cwd));
-    // The branch rides after the path group; it drops whole when the bar
-    // cannot carry it (the paths and the spend keep their room).
-    let branch = state
+    // The spend is right-aligned on the name row; the name keeps a gap
+    // before it and truncates instead of pushing the spend off the bar.
+    let cost_width = cost.as_ref().map_or(0, |cost| str_width(cost));
+    let cost_gap = if cost.is_some() { 2 } else { 0 };
+    let name_budget = width.saturating_sub(1 + cost_width + cost_gap);
+    let name = truncate_to_width(&name, name_budget, "\u{2026}");
+    let name_width = str_width(&name);
+    let mut first: Line = vec![
+        Span::styled(" ".to_string(), Style::default()),
+        Span::styled(name, text),
+    ];
+    if let Some(cost) = cost {
+        let padding = width.saturating_sub(1 + name_width + str_width(&cost));
+        first.push(Span::styled(" ".repeat(padding), Style::default()));
+        first.push(Span::styled(cost, dim));
+    }
+    let mut rows = vec![first];
+
+    let home = pa_types::platform::home_dir().map(|home| home.to_string_lossy().into_owned());
+    let prefix = |label: &str| format!(" {label:<8} ");
+    let project_prefix = prefix("project");
+    let project_width = width.saturating_sub(str_width(&project_prefix));
+    let cwd_prefix = prefix("cwd");
+    let cwd_width = width.saturating_sub(str_width(&cwd_prefix));
+    let (project, cwd, diverged) = state.chat_path.as_ref().map_or_else(
+        || ("-".to_string(), "-".to_string(), false),
+        |path| {
+            (
+                truncate_path_middle(
+                    &format_splash_cwd(&path.session_dir, home.as_deref()),
+                    project_width,
+                ),
+                truncate_path_middle(&format_splash_cwd(&path.cwd, home.as_deref()), cwd_width),
+                path.diverged(),
+            )
+        },
+    );
+    rows.push(vec![
+        Span::styled(project_prefix, dim),
+        Span::styled(project, dim),
+    ]);
+    rows.push(vec![
+        Span::styled(cwd_prefix, dim),
+        Span::styled(cwd, if diverged { drifted } else { dim }),
+    ]);
+
+    let branch_prefix = prefix("branch");
+    let branch_width = width.saturating_sub(str_width(&branch_prefix));
+    let (branch, branch_style) = state
         .git_branch
         .as_deref()
         .filter(|branch| !branch.is_empty())
-        .filter(|_| path.is_some())
-        .map(|branch| truncate_to_width(branch, 20, "\u{2026}"));
-    let branch_width = branch.as_ref().map_or(0, |branch| 2 + str_width(branch));
-    let branch = if base_label_width + branch_width + cost_width <= width {
-        branch
-    } else {
-        None
-    };
-    let label_width = base_label_width + branch.as_ref().map_or(0, |_| branch_width);
-    let mut line: Line = Vec::new();
-    line.push(Span::styled(
-        " ".repeat((width.saturating_sub(label_width)) / 2),
-        Style::default(),
-    ));
-    line.push(Span::styled(name, text));
-    if let Some((session_dir, cwd, diverged)) = path {
-        line.push(Span::styled(" (".to_string(), dim));
-        line.push(Span::styled(session_dir, dim));
-        line.push(Span::styled(", ".to_string(), dim));
-        line.push(Span::styled(cwd, if diverged { drifted } else { dim }));
-        line.push(Span::styled(")".to_string(), dim));
-    }
-    if let Some(branch) = branch {
-        line.push(Span::styled(" \u{2442}".to_string(), dim));
-        line.push(Span::styled(branch, dim));
-    }
-    if let Some(cost) = cost {
-        line.push(Span::styled("  ".to_string(), Style::default()));
-        line.push(Span::styled(cost, dim));
-    }
-    line
+        .map_or_else(|| ("no git repository", muted), |branch| (branch, dim));
+    let branch = truncate_to_width(branch, branch_width, "\u{2026}");
+    rows.push(vec![
+        Span::styled(branch_prefix, dim),
+        Span::styled(branch, branch_style),
+    ]);
+    rows
 }
 
 /// The brand splash: butterfly logo beside the version/model/cwd metadata

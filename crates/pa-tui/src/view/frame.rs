@@ -154,7 +154,7 @@ impl AgentView {
         // The top bar always renders: the surface is fullscreen-only
         // (operator ruling 2026-09-28 — the bar has no gate left).
         let top = render_top_bar(&self.chrome, &self.theme, width);
-        let top_rows = 1;
+        let top_rows = top.len();
         let dock = match overlay_dock {
             // The replacement surfaces swap only the editor part; the `/speed` footer stays
             // the dock's last row (TS `footerSlot`).
@@ -194,7 +194,7 @@ impl AgentView {
         // touched re-style.
         let window_rows = self.selection_styled_window(window_rows, start);
         let mut frame: Vec<Line> = Vec::with_capacity(height);
-        frame.push(pad_row(top, width));
+        frame.extend(top.into_iter().map(|line| pad_row(line, width)));
         for line in window_rows {
             frame.push(pad_row(line, width));
         }
@@ -231,8 +231,9 @@ impl AgentView {
         }
         // A paused viewport carries the follow hint over the last window row — only when
         // following would actually scroll (operator directive 2026-09-26).
-        if !self.following && !self.window_shows_tail {
-            if let Some(row) = frame.get_mut(window_height) {
+        if !self.following && !self.window_shows_tail && window_height > 0 {
+            let hint_row = top_rows + window_height - 1;
+            if let Some(row) = frame.get_mut(hint_row) {
                 let key = self
                     .editor
                     .keybindings()
@@ -241,7 +242,7 @@ impl AgentView {
                 let label = format!(" {key} to follow ");
                 *row = composite_follow_hint(row, &label, width);
                 // The hint's row never reads as the content beneath it.
-                self.click.mask_rows(window_height, window_height + 1);
+                self.click.mask_rows(hint_row, hint_row + 1);
             }
         }
         self.frame_rows = frame.len();

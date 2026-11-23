@@ -863,21 +863,38 @@ fn splash_renders_logo_version_model_and_cwd() {
 }
 
 #[test]
-fn top_bar_centers_name_with_cost() {
+fn top_bar_shows_name_spend_project_cwd_and_branch_on_four_rows() {
     let state = ChromeState {
-        chat_name: "shared-cwd".to_string(),
-        cost_usd: Some(0.0),
+        chat_name: "the session".to_string(),
+        chat_path: Some(ChatPath {
+            session_dir: "/srv/session".to_string(),
+            cwd: "/srv/terminal".to_string(),
+        }),
+        git_branch: Some("feature/x".to_string()),
+        cost_usd: Some(1.25),
         ..Default::default()
     };
-    let line = render_top_bar(&state, &theme(), 120);
-    let text = line.iter().map(|s| s.content.as_str()).collect::<String>();
-    assert!(text.contains("shared-cwd  $0.00"));
-    let start = text.find("shared-cwd").unwrap();
-    assert_eq!(start, 55);
+    let rows = render_top_bar(&state, &theme(), 80);
+    let texts: Vec<String> = rows
+        .iter()
+        .map(|line| line.iter().map(|span| span.content.as_str()).collect())
+        .collect();
+    assert_eq!(rows.len(), 4);
+    assert!(texts[0].starts_with(" the session"), "{:?}", texts[0]);
+    assert!(texts[0].ends_with("$1.25"), "{:?}", texts[0]);
+    assert_eq!(str_width(&texts[0]), 80, "the spend is right-aligned");
+    assert_eq!(
+        &texts[1..],
+        [
+            " project  /srv/session",
+            " cwd      /srv/terminal",
+            " branch   feature/x",
+        ]
+    );
 }
 
 #[test]
-fn top_bar_labels_an_unnamed_session_with_its_dir_and_cwd() {
+fn top_bar_labels_an_unnamed_session_and_says_when_there_is_no_git() {
     let state = ChromeState {
         chat_name: UNNAMED_SESSION.to_string(),
         chat_path: Some(ChatPath {
@@ -886,12 +903,24 @@ fn top_bar_labels_an_unnamed_session_with_its_dir_and_cwd() {
         }),
         ..Default::default()
     };
-    let line = render_top_bar(&state, &theme(), 120);
-    let text = line.iter().map(|s| s.content.as_str()).collect::<String>();
-    assert_eq!(text.trim(), "unnamed (/tmp/project, /tmp/project)");
+    let rows = render_top_bar(&state, &theme(), 120);
+    let texts: Vec<String> = rows
+        .iter()
+        .map(|line| line.iter().map(|span| span.content.as_str()).collect())
+        .collect();
+    assert_eq!(rows.len(), 4);
+    assert!(texts[0].starts_with(" unnamed"), "{:?}", texts[0]);
+    assert_eq!(
+        &texts[1..],
+        [
+            " project  /tmp/project",
+            " cwd      /tmp/project",
+            " branch   no git repository",
+        ]
+    );
     // A terminal still inside the session's directory stays dim: no red.
     let error = theme().fg_style(ThemeColor::Error).fg;
-    assert!(line.iter().all(|span| span.style.fg != error));
+    assert!(rows.iter().flatten().all(|span| span.style.fg != error));
 }
 
 #[test]
@@ -905,71 +934,41 @@ fn top_bar_marks_a_diverged_cwd_in_red() {
         }),
         ..Default::default()
     };
-    let line = render_top_bar(&state, &theme, 120);
-    let text = line.iter().map(|s| s.content.as_str()).collect::<String>();
-    assert_eq!(text.trim(), "the session (/srv/session, /srv/terminal)");
-    let cwd = line
+    let rows = render_top_bar(&state, &theme, 80);
+    let project = rows[1]
+        .iter()
+        .find(|span| span.content == "/srv/session")
+        .expect("the project directory span");
+    assert_eq!(project.style.fg, theme.fg_style(ThemeColor::Dim).fg);
+    let cwd = rows[2]
         .iter()
         .find(|span| span.content == "/srv/terminal")
         .expect("the cwd span");
     assert_eq!(cwd.style.fg, theme.fg_style(ThemeColor::Error).fg);
-    let session_dir = line
-        .iter()
-        .find(|span| span.content == "/srv/session")
-        .expect("the session directory span");
-    assert_eq!(session_dir.style.fg, theme.fg_style(ThemeColor::Dim).fg);
 }
 
 #[test]
-fn top_bar_drops_the_paths_when_the_bar_is_too_narrow() {
+fn top_bar_truncates_the_paths_and_branch_when_the_bar_is_narrow() {
     let state = ChromeState {
         chat_name: UNNAMED_SESSION.to_string(),
         chat_path: Some(ChatPath {
             session_dir: "/tmp/project".to_string(),
             cwd: "/tmp/project".to_string(),
         }),
-        ..Default::default()
-    };
-    let line = render_top_bar(&state, &theme(), 20);
-    let text = line.iter().map(|s| s.content.as_str()).collect::<String>();
-    assert_eq!(text.trim(), "unnamed");
-}
-
-#[test]
-fn top_bar_shows_the_git_branch_after_the_paths() {
-    let state = ChromeState {
-        chat_name: "the session".to_string(),
-        chat_path: Some(ChatPath {
-            session_dir: "/tmp/project".to_string(),
-            cwd: "/tmp/project".to_string(),
-        }),
         git_branch: Some("feature/x".to_string()),
         ..Default::default()
     };
-    let line = render_top_bar(&state, &theme(), 120);
-    let text = line.iter().map(|s| s.content.as_str()).collect::<String>();
-    assert_eq!(
-        text.trim(),
-        "the session (/tmp/project, /tmp/project) \u{2442}feature/x"
-    );
-}
-
-#[test]
-fn top_bar_drops_the_git_branch_when_it_would_overflow() {
-    let state = ChromeState {
-        chat_name: "the session".to_string(),
-        chat_path: Some(ChatPath {
-            session_dir: "/tmp/project".to_string(),
-            cwd: "/tmp/project".to_string(),
-        }),
-        git_branch: Some("feature/x".to_string()),
-        ..Default::default()
-    };
-    let line = render_top_bar(&state, &theme(), 45);
-    let text = line.iter().map(|s| s.content.as_str()).collect::<String>();
-    assert!(text.contains("/tmp/project"), "{text}");
-    assert!(!text.contains("feature/x"), "{text}");
-    assert!(!text.contains('\u{2442}'), "{text}");
+    let rows = render_top_bar(&state, &theme(), 16);
+    let texts: Vec<String> = rows
+        .iter()
+        .map(|line| line.iter().map(|span| span.content.as_str()).collect())
+        .collect();
+    assert_eq!(rows.len(), 4);
+    assert_eq!(texts[0], " unnamed");
+    assert!(!texts[1].contains("/tmp/project"), "{:?}", texts[1]);
+    assert!(!texts[2].contains("/tmp/project"), "{:?}", texts[2]);
+    assert!(texts[3].contains('\u{2026}'), "{:?}", texts[3]);
+    assert!(!texts[3].contains("feature/x"), "{:?}", texts[3]);
 }
 
 #[test]
