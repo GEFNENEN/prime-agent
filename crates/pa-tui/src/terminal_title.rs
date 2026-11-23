@@ -1,4 +1,5 @@
-//! The terminal window title: `prime-agent · <session> · <state>`.
+//! The terminal window title: `<session> · <state>` (or `prime-agent · <state>`
+//! before a session names itself).
 //!
 //! Written through OSC 0 (icon name and title) on change only. Unlike the
 //! OSC 7501 program-status reports, the title needs no feature detection:
@@ -10,6 +11,9 @@ use std::io::Write;
 use crate::program_status::Status;
 
 const APP: &str = "prime-agent";
+/// The session label's display-width cap: a long name must not push the
+/// state out of a narrow title bar.
+const MAX_SESSION_WIDTH: usize = 32;
 
 #[derive(Debug, Default)]
 struct Reporter {
@@ -55,7 +59,8 @@ impl Reporter {
         let title = if session.is_empty() {
             format!("{APP} · {state}")
         } else {
-            format!("{APP} · {session} · {state}")
+            let session = crate::width::truncate_to_width(session, MAX_SESSION_WIDTH, "…");
+            format!("{session} · {state}")
         };
         (self.written.as_deref() != Some(title.as_str())).then_some(title)
     }
@@ -102,23 +107,23 @@ mod tests {
     fn composes_the_app_session_and_state() {
         assert_eq!(
             reporter("my session", Status::Working).owed().as_deref(),
-            Some("prime-agent · my session · working")
+            Some("my session · working")
         );
         assert_eq!(
             reporter("my session", Status::Done).owed().as_deref(),
-            Some("prime-agent · my session · done")
+            Some("my session · done")
         );
     }
 
     #[test]
     fn an_unchanged_title_is_not_owed() {
         let mut reporter = reporter("chat", Status::Working);
-        reporter.written = Some("prime-agent · chat · working".to_string());
+        reporter.written = Some("chat · working".to_string());
         assert_eq!(reporter.owed(), None);
         reporter.status = Some(Status::Done);
         assert_eq!(
             reporter.owed().as_deref(),
-            Some("prime-agent · chat · done"),
+            Some("chat · done"),
             "a state change rewrites the title"
         );
     }
@@ -128,6 +133,17 @@ mod tests {
         assert_eq!(
             reporter("   ", Status::Idle).owed().as_deref(),
             Some("prime-agent · idle")
+        );
+    }
+
+    #[test]
+    fn a_long_session_label_is_truncated_to_the_display_cap() {
+        let title = reporter(&"a".repeat(40), Status::Working)
+            .owed()
+            .expect("a title");
+        assert_eq!(
+            title,
+            format!("{}… · working", "a".repeat(MAX_SESSION_WIDTH - 1))
         );
     }
 
