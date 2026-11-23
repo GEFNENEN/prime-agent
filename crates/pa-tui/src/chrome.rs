@@ -587,6 +587,8 @@ pub fn render_tray_with_hint(
 ) -> (Line, Option<std::ops::Range<usize>>) {
     let dim = theme.fg_style(ThemeColor::Dim);
     let muted = theme.fg_style(ThemeColor::Muted);
+    let warning = theme.fg_style(ThemeColor::Warning);
+    let error = theme.fg_style(ThemeColor::Error);
     let mut hint: Option<std::ops::Range<usize>> = None;
     let mut left: Line = Vec::new();
     if let Some(override_label) = &state.tray_override {
@@ -646,13 +648,17 @@ pub fn render_tray_with_hint(
         if !right.is_empty() {
             right.push(Span::styled(" \u{00b7} ".to_string(), dim));
         }
+        let percent = context.percent();
+        let style = if percent >= 90.0 {
+            error
+        } else if percent >= 75.0 {
+            warning
+        } else {
+            dim
+        };
         right.push(Span::styled(
-            format!(
-                "{} ({:.0}%)",
-                format_token_count(context.tokens),
-                context.percent()
-            ),
-            dim,
+            format!("{} ({percent:.0}%)", format_token_count(context.tokens)),
+            style,
         ));
     }
     let left_width: usize = left.iter().map(|s| str_width(&s.content)).sum();

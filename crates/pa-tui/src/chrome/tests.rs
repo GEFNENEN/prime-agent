@@ -962,6 +962,29 @@ fn tray_left_and_right_labels() {
     assert_eq!(str_width(&text), 120);
 }
 
+/// The context meter stays dim below 75%, warns from 75%, and errors from 90%.
+#[test]
+fn the_context_meter_warns_as_the_window_fills() {
+    let theme = theme();
+    let style_at = |tokens: u64| {
+        let state = ChromeState {
+            context: Some(ContextUsage {
+                tokens,
+                context_window: 100_000,
+            }),
+            ..Default::default()
+        };
+        let line = render_tray(&state, &theme, 120);
+        line.iter()
+            .find(|span| span.content.contains('%'))
+            .map(|span| span.style)
+            .expect("the context label")
+    };
+    assert_eq!(style_at(50_000), theme.fg_style(ThemeColor::Dim));
+    assert_eq!(style_at(80_000), theme.fg_style(ThemeColor::Warning));
+    assert_eq!(style_at(95_000), theme.fg_style(ThemeColor::Error));
+}
+
 /// `fast` for the priority tier, the tier name for any other non-default
 /// tier, nothing for `default` or an unset tier.
 #[test]
