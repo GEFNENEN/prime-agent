@@ -105,8 +105,8 @@ impl AgentView {
     ) -> Vec<Line> {
         #[cfg(test)]
         layout::ENTRY_RENDERS.with(|count| count.set(count.get() + 1));
-        // The conversation-only level renders no rows for hidden entry families; the
-        // count path returns the same zero, so layout geometry stays exact.
+        // The minimal level renders no rows for its hidden tool-card and shell-completion
+        // families; the count path returns the same zero, so layout geometry stays exact.
         if !self.detail.shows_entry(entry) {
             return Vec::new();
         }

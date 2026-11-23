@@ -7,8 +7,8 @@ impl AgentView {
         #[cfg(test)]
         super::layout::ENTRY_VISITS.with(|count| count.set(count.get() + 1));
         let entry = &self.chat[index];
-        // The conversation-only level hides entry families wholesale; the render path
-        // returns the same zero rows.
+        // The minimal level hides its tool-card and shell-completion entry families
+        // wholesale; the render path returns the same zero rows.
         if !self.detail.shows_entry(entry) {
             return 0;
         }

@@ -1126,8 +1126,8 @@ fn compaction_summary_block_toggles_with_the_detail_cycle() {
     let minimal = transcript_text(&mut view, 80);
     assert_eq!(view.detail, Detail::Minimal);
     assert!(
-        !minimal.contains("Context compacted"),
-        "the minimal level hides the summary row: {minimal}"
+        minimal.contains("Context compacted") && !minimal.contains("Compacted from"),
+        "the minimal level keeps the summary row collapsed: {minimal}"
     );
     view.detail = view.detail.next();
     let collapsed_again = transcript_text(&mut view, 80);
@@ -1788,11 +1788,12 @@ fn settled_rows_survive_a_cache_roundtrip() {
     );
 }
 
-/// The minimal level is a reading mode: only the user and assistant dialogue
-/// renders. Every activity and bookkeeping row family hides, and the per-level
-/// caches never serve a row rendered for another level.
+/// The minimal level hides the model's tool cards and the background shell
+/// completion rows; the `!`/`!!` bash run cards stay, and thinking stays hidden
+/// like overview. Every other row family renders, and the per-level caches
+/// never serve a row rendered for another level.
 #[test]
-fn minimal_detail_renders_only_the_conversation() {
+fn minimal_detail_hides_tool_cards_and_shell_completions() {
     let entries = vec![
         ChatEntry::Status {
             text: "status-notice".to_string(),
@@ -1853,16 +1854,20 @@ fn minimal_detail_renders_only_the_conversation() {
     // Render the expanded level first so the minimal level is shown to ignore
     // the expanded rows cached under another slot.
     let hidden = [
-        "status-notice",
         "thinking-body",
         "echo done",
+        "shell-body",
+        "Background shell command finished",
+    ];
+    let shown = [
+        "hello",
+        "assistant-answer",
         "echo user-bash",
+        "status-notice",
         "/model other",
         "Context compacted",
         "compact-story",
         "Agent message",
-        "agent-body",
-        "shell-body",
         "Restored Python kernel state",
         "Refined",
         "refinement-body",
@@ -1870,7 +1875,9 @@ fn minimal_detail_renders_only_the_conversation() {
     ];
     view.detail = Detail::All;
     let expanded = transcript_text(&mut view, 80);
-    for marker in hidden {
+    // The agent row's body is its expandable detail: `all` renders it, the
+    // minimal level keeps the summary row only.
+    for marker in hidden.into_iter().chain(shown).chain(["agent-body"]) {
         assert!(
             expanded.contains(marker),
             "the expanded level renders {marker:?}: {expanded}"
@@ -1878,26 +1885,30 @@ fn minimal_detail_renders_only_the_conversation() {
     }
     view.detail = Detail::Minimal;
     let minimal = transcript_text(&mut view, 80);
-    assert!(
-        minimal.contains("hello") && minimal.contains("assistant-answer"),
-        "the user and assistant dialogue renders: {minimal}"
-    );
     for marker in hidden {
         assert!(
             !minimal.contains(marker),
             "the minimal level hides {marker:?}: {minimal}"
         );
     }
-    // The cycle returns to the activity levels; thinking stays hidden at overview.
+    for marker in shown {
+        assert!(
+            minimal.contains(marker),
+            "the minimal level keeps {marker:?}: {minimal}"
+        );
+    }
+    // The cycle returns to the full levels; thinking stays hidden at overview.
     view.cycle_detail();
     let overview = transcript_text(&mut view, 80);
     assert_eq!(view.detail, Detail::Overview);
     assert!(
         overview.contains("status-notice")
             && overview.contains("echo done")
+            && overview.contains("echo user-bash")
+            && overview.contains("Background shell command finished")
             && overview.contains("Context compacted")
             && overview.contains("Agent message"),
-        "the overview level restores the activity rows: {overview}"
+        "the overview level restores the tool and shell rows: {overview}"
     );
     assert!(
         !overview.contains("thinking-body"),

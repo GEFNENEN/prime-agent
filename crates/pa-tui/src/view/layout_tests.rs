@@ -468,14 +468,11 @@ fn mutation_invalidates_every_detail_slot() {
     ] {
         view.detail = detail;
         let rows = view.render_frame(80, 24);
-        let shows_new = rows
-            .iter()
-            .flatten()
-            .any(|span| span.content.contains("new"));
-        assert_eq!(
-            shows_new,
-            !detail.conversation_only(),
-            "{detail:?}: the mutated status renders everywhere but minimal"
+        assert!(
+            rows.iter()
+                .flatten()
+                .any(|span| span.content.contains("new")),
+            "{detail:?}: the mutated status re-renders at this level"
         );
     }
     assert_eq!(ENTRY_RENDERS.with(std::cell::Cell::get), 4);

@@ -14,8 +14,10 @@ use ratatui::style::Style;
 /// How much detail the conversation shows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Detail {
-    /// `minimal`: only the user and assistant dialogue - tool cards, bash runs,
-    /// notices, and thinking blocks hidden (a clean reading mode).
+    /// `minimal`: the model's tool cards and the background shell completion
+    /// rows hide, while the rest of the transcript (dialogue, `!`/`!!` bash
+    /// runs, notices, agent messages, injected prompts, compaction rows) shows;
+    /// thinking stays hidden like `overview`.
     Minimal,
     /// `overview`: thinking hidden, tool output and edit diffs collapsed.
     Overview,
@@ -51,19 +53,21 @@ impl Detail {
         }
     }
 
-    /// Whether the level is the conversation-only reading mode.
+    /// Whether the level hides tool activity: the model's tool cards and the
+    /// background shell completion rows.
     #[must_use]
-    pub fn conversation_only(self) -> bool {
+    pub fn hides_tool_activity(self) -> bool {
         matches!(self, Detail::Minimal)
     }
 
-    /// The minimal level's row filter: the user and assistant dialogue stays;
-    /// every activity or bookkeeping row family hides. The other levels show
+    /// The minimal level's row filter: tool cards and background shell
+    /// completion rows hide, every other entry family (dialogue, `!`/`!!` bash
+    /// runs, notices, messages, compaction rows) shows. The other levels show
     /// every entry.
     #[must_use]
     pub fn shows_entry(self, entry: &ChatEntry) -> bool {
-        !self.conversation_only()
-            || matches!(entry, ChatEntry::User { .. } | ChatEntry::Assistant(_))
+        !self.hides_tool_activity()
+            || !matches!(entry, ChatEntry::Tool(_) | ChatEntry::ShellCompletion(_))
     }
 
     #[must_use]
@@ -201,11 +205,11 @@ pub struct AssistantMessage {
 
 impl AssistantMessage {
     /// The tool-call separator renders for visible bodies, aborted
-    /// messages, and messages not following tool activity. The
-    /// conversation-only level never separates its hidden tool cards.
+    /// messages, and messages not following tool activity. The minimal
+    /// level never separates its hidden tool cards.
     #[must_use]
     pub fn has_trailing_space(&self, detail: Detail, preceded_by_tool_activity: bool) -> bool {
-        if detail.conversation_only() {
+        if detail.hides_tool_activity() {
             return false;
         }
         let has_visible_content = self.blocks.iter().any(|block| match block {

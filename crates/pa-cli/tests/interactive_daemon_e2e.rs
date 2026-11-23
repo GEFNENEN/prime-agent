@@ -2081,15 +2081,16 @@ async fn tui_compact_shows_the_loader_then_the_summary_and_rebuilds() {
         "the compacted-away first turn dropped from the rebuilt transcript:\n{last}"
     );
 
-    // The minimal level keeps the dialogue and hides the compaction row.
+    // The minimal level keeps the dialogue and the compaction row; only tool and
+    // shell activity hides.
     let minimal = outcome
         .frames
         .iter()
         .find(|frame| frame.contains("Minimal mode"))
         .expect("some frame captured the minimal level");
     assert!(
-        minimal.contains("kept intact") && !minimal.contains("Context compacted"),
-        "the minimal level keeps the dialogue and hides the compaction row:\n{minimal}"
+        minimal.contains("kept intact") && minimal.contains("Context compacted"),
+        "the minimal level keeps the dialogue and the compaction row:\n{minimal}"
     );
 
     // The expanded frames show the body and metadata; the wrap back to overview re-collapses.

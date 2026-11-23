@@ -404,9 +404,8 @@ impl AgentView {
         let prefix =
             |timestamp: Option<u64>| timestamp.map_or(0, |_| self.timestamp_format.prefix_width());
         // In-flight bash output renders ABOVE the execution indicator and
-        // flushes into the transcript when the turn settles. The
-        // conversation-only level hides it like every other bash card.
-        if !self.pending_bash.is_empty() && !self.detail.conversation_only() {
+        // flushes into the transcript when the turn settles.
+        if !self.pending_bash.is_empty() {
             // TS `keyText("tui.select.cancel")`: every key of the
             // binding joins the hint ("Esc/Ctrl+C").
             let cancel_hint = self.editor.keybindings().key_text("tui.select.cancel");

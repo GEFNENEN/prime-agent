@@ -84,13 +84,13 @@ fn retry_loader_spans_carry_the_ts_sgr_boundaries() {
 fn detail_cycle_visits_all_four_levels() {
     // The extended cycle: minimal -> overview -> details -> all -> minimal.
     let mut detail = Detail::Minimal;
-    assert!(detail.conversation_only());
+    assert!(detail.hides_tool_activity());
     assert!(!detail.show_thinking());
     assert!(!detail.tool_output_expanded());
     assert!(!detail.edit_diffs_expanded());
     detail = detail.next();
     assert_eq!(detail, Detail::Overview);
-    assert!(!detail.conversation_only());
+    assert!(!detail.hides_tool_activity());
     assert!(!detail.show_thinking());
     assert!(!detail.tool_output_expanded());
     assert!(!detail.edit_diffs_expanded());
