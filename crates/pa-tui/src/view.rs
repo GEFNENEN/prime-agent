@@ -850,6 +850,44 @@ impl AgentView {
     }
 
     /// Jump to the transcript start; an empty transcript keeps following.
+    /// The entries the reader navigates by message: the user's prompts and
+    /// their slash-command echoes.
+    fn is_user_entry(entry: &ChatEntry) -> bool {
+        matches!(
+            entry,
+            ChatEntry::User { .. } | ChatEntry::SlashCommand { .. }
+        )
+    }
+
+    /// Jump to the previous user message: the newest while following, the
+    /// nearest strictly above the paused viewport otherwise.
+    pub fn jump_to_previous_user_message(&mut self) {
+        if self.following {
+            if let Some(index) = self.chat.iter().rposition(Self::is_user_entry) {
+                self.scroll_to_entry(index, 0);
+            }
+            return;
+        }
+        let Some((index, _)) = self.reader_position() else {
+            return;
+        };
+        if let Some(index) = self.chat[..index].iter().rposition(Self::is_user_entry) {
+            self.scroll_to_entry(index, 0);
+        }
+    }
+
+    /// Jump to the next user message below the paused viewport. Following
+    /// already shows the newest output, so it stays put.
+    pub fn jump_to_next_user_message(&mut self) {
+        if self.following {
+            return;
+        }
+        let start = self.reader_position().map_or(0, |(index, _)| index + 1);
+        if let Some(index) = self.chat[start..].iter().position(Self::is_user_entry) {
+            self.scroll_to_entry(start + index, 0);
+        }
+    }
+
     pub fn scroll_to_top(&mut self) {
         if self.has_selection() {
             self.resolve_sparse_geometry();

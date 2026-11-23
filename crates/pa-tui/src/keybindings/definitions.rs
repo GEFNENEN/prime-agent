@@ -253,6 +253,20 @@ pub const TUI_KEYBINDINGS: &[(&str, KeybindingDefinition)] = &[
         def!(&["pageDown"], "Scroll transcript down a page (fullscreen)"),
     ),
     (
+        "tui.viewport.previousUserMessage",
+        def!(
+            &["alt+[", "alt+pageUp"],
+            "Scroll to the previous user message (fullscreen)"
+        ),
+    ),
+    (
+        "tui.viewport.nextUserMessage",
+        def!(
+            &["alt+]", "alt+pageDown"],
+            "Scroll to the next user message (fullscreen)"
+        ),
+    ),
+    (
         "tui.viewport.top",
         def!(&["shift+alt+up"], "Scroll transcript to top (fullscreen)"),
     ),

@@ -196,13 +196,15 @@ fn handle_key(
     };
     // Transcript viewport keys (consumed before the editor in fullscreen): page scroll,
     // top, follow.
-    let (page_up, page_down, to_top, follow) = {
+    let (page_up, page_down, to_top, follow, previous_user, next_user) = {
         let kb = view.editor.keybindings();
         (
             kb.matches(&id, "tui.viewport.pageUp"),
             kb.matches(&id, "tui.viewport.pageDown"),
             kb.matches(&id, "tui.viewport.top"),
             kb.matches(&id, "tui.viewport.follow"),
+            kb.matches(&id, "tui.viewport.previousUserMessage"),
+            kb.matches(&id, "tui.viewport.nextUserMessage"),
         )
     };
     if page_up {
@@ -211,6 +213,14 @@ fn handle_key(
     }
     if page_down {
         view.scroll_by(view.page_size() as isize);
+        return;
+    }
+    if previous_user {
+        view.jump_to_previous_user_message();
+        return;
+    }
+    if next_user {
+        view.jump_to_next_user_message();
         return;
     }
     if to_top {

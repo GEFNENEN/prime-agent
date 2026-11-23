@@ -380,13 +380,15 @@ impl SessionUi {
         // Dispatch order: the transcript viewport keys, then the focused subagent summary line,
         // then the editor, then the app actions in registration order. Every match goes through the
         // effective bindings, so a `keybindings.json` override moves both handler and hint.
-        let (page_up, page_down, to_top, follow) = {
+        let (page_up, page_down, to_top, follow, previous_user, next_user) = {
             let kb = view.editor.keybindings();
             (
                 kb.matches(&id, "tui.viewport.pageUp"),
                 kb.matches(&id, "tui.viewport.pageDown"),
                 kb.matches(&id, "tui.viewport.top"),
                 kb.matches(&id, "tui.viewport.follow"),
+                kb.matches(&id, "tui.viewport.previousUserMessage"),
+                kb.matches(&id, "tui.viewport.nextUserMessage"),
             )
         };
         if page_up {
@@ -402,6 +404,20 @@ impl SessionUi {
             view.editor.clear_selection();
             self.window.scroll(view.page_size() as isize, view);
             self.track_scroll("page_down", view.is_following());
+            self.dirty = true;
+            return Ok(());
+        }
+        if previous_user {
+            view.editor.clear_selection();
+            view.jump_to_previous_user_message();
+            self.track_scroll("previous_user_message", view.is_following());
+            self.dirty = true;
+            return Ok(());
+        }
+        if next_user {
+            view.editor.clear_selection();
+            view.jump_to_next_user_message();
+            self.track_scroll("next_user_message", view.is_following());
             self.dirty = true;
             return Ok(());
         }
@@ -947,6 +963,8 @@ pub(crate) fn opening_echo_key_claimed(
         || kb.matches(id, "tui.viewport.pageDown")
         || kb.matches(id, "tui.viewport.top")
         || kb.matches(id, "tui.viewport.follow")
+        || kb.matches(id, "tui.viewport.previousUserMessage")
+        || kb.matches(id, "tui.viewport.nextUserMessage")
         || kb.matches(id, "app.clipboard.pasteImage")
         || kb.matches(id, "app.input.clear")
         || kb.matches(id, "app.interrupt")

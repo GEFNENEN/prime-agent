@@ -443,6 +443,37 @@ fn scroll_pages_from_tail_and_resumes_at_bottom() {
 }
 
 #[test]
+fn user_message_jumps_walk_the_prompts() {
+    let mut v = filled(view(), 30);
+    v.render_frame(80, 24);
+    v.scroll_to_top();
+    v.render_frame(80, 24);
+    // From the splash the first next jump lands on the oldest prompt.
+    v.jump_to_next_user_message();
+    v.render_frame(80, 24);
+    assert_eq!(v.reader_position(), Some((0, 0)));
+    v.jump_to_next_user_message();
+    v.render_frame(80, 24);
+    assert_eq!(v.reader_position(), Some((2, 0)));
+    v.jump_to_previous_user_message();
+    v.render_frame(80, 24);
+    assert_eq!(v.reader_position(), Some((0, 0)));
+    // The oldest prompt has nothing above it.
+    v.jump_to_previous_user_message();
+    v.render_frame(80, 24);
+    assert_eq!(v.reader_position(), Some((0, 0)));
+
+    // Following pauses on the newest prompt (the bottom clamp keeps the
+    // prompt on screen); next stays paused.
+    let mut v = filled(view(), 30);
+    v.render_frame(80, 24);
+    v.jump_to_previous_user_message();
+    assert!(!v.is_following());
+    v.jump_to_next_user_message();
+    assert!(!v.is_following());
+}
+
+#[test]
 fn scroll_offset_is_visible_in_frames() {
     let mut v = filled(view(), 30);
     let following = v.render_frame(80, 24);

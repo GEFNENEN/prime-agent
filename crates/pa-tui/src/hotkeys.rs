@@ -20,6 +20,8 @@ pub fn hotkeys_guide(kb: &KeybindingsManager) -> String {
     let cursor_up = key_display(kb, "tui.editor.cursorUp");
     let cursor_down = key_display(kb, "tui.editor.cursorDown");
     let history_search = key_display(kb, "tui.editor.historySearch");
+    let previous_user = key_display(kb, "tui.viewport.previousUserMessage");
+    let next_user = key_display(kb, "tui.viewport.nextUserMessage");
     let cursor_left = key_display(kb, "tui.editor.cursorLeft");
     let cursor_right = key_display(kb, "tui.editor.cursorRight");
     let cursor_word_left = key_display(kb, "tui.editor.cursorWordLeft");
@@ -96,6 +98,7 @@ pub fn hotkeys_guide(kb: &KeybindingsManager) -> String {
 | `{jump_forward}` | Jump forward to character |
 | `{jump_backward}` | Jump backward to character |
 | `{page_up}` / `{page_down}` | Scroll by page |
+| `{previous_user}` / `{next_user}` | Jump to the previous / next user message |
 
 **Editing**
 | Key | Action |

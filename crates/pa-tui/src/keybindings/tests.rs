@@ -19,6 +19,8 @@ fn defaults_match_ts() {
     assert!(kb.matches("escape", "app.input.clear"));
     assert!(kb.matches("ctrl+shift+down", "tui.viewport.follow"));
     assert!(kb.matches("shift+alt+up", "tui.viewport.top"));
+    assert!(kb.matches("alt+pageUp", "tui.viewport.previousUserMessage"));
+    assert!(kb.matches("alt+pageDown", "tui.viewport.nextUserMessage"));
     assert!(kb.matches("ctrl+w", "tui.editor.deleteWordBackward"));
     assert!(kb.matches("alt+backspace", "tui.editor.deleteWordBackward"));
     assert!(kb.matches("ctrl+-", "tui.editor.undo"));
