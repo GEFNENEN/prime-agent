@@ -109,6 +109,7 @@ pub mod side_question;
 pub mod snapshot;
 pub mod subagents;
 mod suspend;
+pub(crate) mod terminal_bell;
 mod terminal_image;
 pub(crate) mod terminal_title;
 pub mod theme;

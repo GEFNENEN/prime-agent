@@ -195,6 +195,9 @@ pub(crate) struct SessionUi {
     /// notes rewrite it in place; any later entry invalidates it.
     last_status_index: Option<usize>,
     show_images: bool,
+    /// `terminal.bellOnTurnEnd`, cached: the settings seam opens the store on
+    /// every getter call, so the run loop must not query it per frame.
+    pub(crate) bell_on_turn_end: bool,
     fullscreen_mouse: bool,
     speed_display_enabled: bool,
     /// Per-session output tok/sec accumulation over completed responses;

@@ -1278,6 +1278,19 @@ mod tests {
     }
 
     #[test]
+    fn turn_end_bell_round_trips_through_the_global_scope() {
+        let mut manager = SettingsManager::in_memory(&Settings::default());
+        assert!(!manager.get_bell_on_turn_end(), "unset means off");
+        manager.set_bell_on_turn_end(true).unwrap();
+        assert!(manager.get_bell_on_turn_end());
+        manager.reload().unwrap();
+        assert!(
+            manager.get_bell_on_turn_end(),
+            "the global scope persists it"
+        );
+    }
+
+    #[test]
     fn timestamp_settings_normalize_unknown_values() {
         let mut manager = SettingsManager::in_memory(&Settings::default());
         manager.set_timestamp_date("bogus").unwrap();

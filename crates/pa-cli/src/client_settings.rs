@@ -171,6 +171,13 @@ impl ClientSettings for CliClientSettings {
         bool
     );
     setting!(
+        bell_on_turn_end,
+        set_bell_on_turn_end,
+        get_bell_on_turn_end,
+        set_bell_on_turn_end,
+        bool
+    );
+    setting!(
         show_timestamps,
         set_show_timestamps,
         get_show_timestamps,

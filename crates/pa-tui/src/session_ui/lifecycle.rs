@@ -82,6 +82,10 @@ impl SessionUi {
             branch_summary_skip_prompt: options.branch_summary_skip_prompt,
             last_status_index: None,
             show_images: options.show_images,
+            bell_on_turn_end: options
+                .client_settings
+                .as_ref()
+                .is_some_and(|settings| settings.bell_on_turn_end()),
             fullscreen_mouse: options.fullscreen_mouse,
             service_tier: None,
             pending_model_fallback_message: None,

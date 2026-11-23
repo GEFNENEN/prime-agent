@@ -180,6 +180,7 @@ pub struct TerminalSettings {
     pub show_images: Option<bool>,
     pub clear_on_shrink: Option<bool>,
     pub show_terminal_progress: Option<bool>,
+    pub bell_on_turn_end: Option<bool>,
     pub show_timestamps: Option<bool>,
     pub timestamp_date: Option<String>,
     pub timestamp_millis: Option<u8>,

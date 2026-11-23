@@ -344,6 +344,14 @@ pub fn settings_menu_rows(current: &SettingsCurrentValues) -> Vec<SettingsMenuRo
             submenu: None,
         },
         SettingsMenuRow {
+            id: "turn-end-bell",
+            label: "Turn-end bell",
+            description: "Ring the terminal bell once when a turn ends (done or error)",
+            current: current.bell_on_turn_end.to_string(),
+            values: Some(bool_value()),
+            submenu: None,
+        },
+        SettingsMenuRow {
             id: "quiet-startup",
             label: "Quiet startup",
             description: "Disable verbose printing at startup",
@@ -409,6 +417,7 @@ pub struct SettingsCurrentValues {
     pub autocomplete_max_visible: u64,
     pub clear_on_shrink: bool,
     pub terminal_progress: bool,
+    pub bell_on_turn_end: bool,
     pub timestamps: bool,
     pub timestamp_date: String,
     pub timestamp_millis: u8,

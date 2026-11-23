@@ -1736,6 +1736,7 @@ async fn run_interactive_surface(
             let status = session.program_status(&view);
             crate::program_status::report(status);
             crate::terminal_title::report(status, &view.chrome.chat_name);
+            crate::terminal_bell::report(status, session.bell_on_turn_end);
         }
 
         // Spinner animation: the wall clock drives the phase, not the render rate — the frame gate

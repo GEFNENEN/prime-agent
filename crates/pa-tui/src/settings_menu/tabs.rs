@@ -43,6 +43,7 @@ const TAB_LAYOUT: &[TabLayout] = &[
             "auto-resize-images",
             "block-images",
             "mermaid-rendering",
+            "turn-end-bell",
         ],
     },
     TabLayout {

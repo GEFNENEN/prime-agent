@@ -236,6 +236,7 @@ impl SessionUi {
             values.autocomplete_max_visible = settings.autocomplete_max_visible();
             values.clear_on_shrink = settings.clear_on_shrink();
             values.terminal_progress = settings.show_terminal_progress();
+            values.bell_on_turn_end = settings.bell_on_turn_end();
             values.timestamps = settings.show_timestamps();
             values.timestamp_date = settings.timestamp_date();
             values.timestamp_millis = settings.timestamp_millis();
@@ -465,6 +466,15 @@ impl SessionUi {
                     value,
                     view,
                 );
+            }
+            "turn-end-bell" => {
+                if let Some(settings) = &self.client_settings {
+                    if let Err(error) = settings.set_bell_on_turn_end(value == "true") {
+                        self.error_row(&format!("{error:#}"), view);
+                        return;
+                    }
+                }
+                self.bell_on_turn_end = value == "true";
             }
             "timestamps" => {
                 if let Some(settings) = &self.client_settings {

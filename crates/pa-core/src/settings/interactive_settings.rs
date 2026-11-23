@@ -123,6 +123,27 @@ impl SettingsManager {
         self.save_global_scope(&["terminal.showTerminalProgress"])
     }
 
+    /// `terminal.bellOnTurnEnd`: unset keeps the terminal silent.
+    #[must_use]
+    pub fn get_bell_on_turn_end(&self) -> bool {
+        self.settings()
+            .terminal
+            .as_ref()
+            .and_then(|terminal| terminal.bell_on_turn_end)
+            .unwrap_or(false)
+    }
+
+    /// # Errors
+    ///
+    /// Returns an error when the global settings scope cannot be saved.
+    pub fn set_bell_on_turn_end(&mut self, enabled: bool) -> Result<()> {
+        self.global_mut()
+            .terminal
+            .get_or_insert_with(Default::default)
+            .bell_on_turn_end = Some(enabled);
+        self.save_global_scope(&["terminal.bellOnTurnEnd"])
+    }
+
     /// `terminal.showTimestamps`: unset means the transcript stays undecorated.
     #[must_use]
     pub fn get_show_timestamps(&self) -> bool {
