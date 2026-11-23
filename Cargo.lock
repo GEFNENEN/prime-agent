@@ -1506,7 +1506,7 @@ checksum = "7c87def4c32ab89d880effc9e097653c8da5d6ef28e6b539d313baaacfbafcbe"
 
 [[package]]
 name = "pa-agent"
-version = "0.10.5+custom.48"
+version = "0.10.5+custom.49"
 dependencies = [
  "anyhow",
  "serde",
@@ -1517,7 +1517,7 @@ dependencies = [
 
 [[package]]
 name = "pa-ai"
-version = "0.10.5+custom.48"
+version = "0.10.5+custom.49"
 dependencies = [
  "anyhow",
  "base64 0.23.1",
@@ -1551,7 +1551,7 @@ dependencies = [
 
 [[package]]
 name = "pa-cli"
-version = "0.10.5+custom.48"
+version = "0.10.5+custom.49"
 dependencies = [
  "anyhow",
  "base64 0.23.1",
@@ -1583,7 +1583,7 @@ dependencies = [
 
 [[package]]
 name = "pa-core"
-version = "0.10.5+custom.48"
+version = "0.10.5+custom.49"
 dependencies = [
  "anyhow",
  "base64 0.23.1",
@@ -1623,7 +1623,7 @@ dependencies = [
 
 [[package]]
 name = "pa-daemon"
-version = "0.10.5+custom.48"
+version = "0.10.5+custom.49"
 dependencies = [
  "anyhow",
  "filetime",
@@ -1661,7 +1661,7 @@ dependencies = [
 
 [[package]]
 name = "pa-models"
-version = "0.10.5+custom.48"
+version = "0.10.5+custom.49"
 dependencies = [
  "hex",
  "hmac",
@@ -1681,7 +1681,7 @@ dependencies = [
 
 [[package]]
 name = "pa-perf"
-version = "0.10.5+custom.48"
+version = "0.10.5+custom.49"
 dependencies = [
  "anyhow",
  "clap",
@@ -1697,7 +1697,7 @@ dependencies = [
 
 [[package]]
 name = "pa-telemetry"
-version = "0.10.5+custom.48"
+version = "0.10.5+custom.49"
 dependencies = [
  "anyhow",
  "reqwest",
@@ -1713,7 +1713,7 @@ dependencies = [
 
 [[package]]
 name = "pa-tui"
-version = "0.10.5+custom.48"
+version = "0.10.5+custom.49"
 dependencies = [
  "anyhow",
  "base64 0.23.1",
@@ -1742,7 +1742,7 @@ dependencies = [
 
 [[package]]
 name = "pa-types"
-version = "0.10.5+custom.48"
+version = "0.10.5+custom.49"
 dependencies = [
  "anyhow",
  "libc",
