@@ -401,7 +401,7 @@ pub fn render_top_bar(state: &ChromeState, theme: &Theme, width: usize) -> Vec<L
     let mut rows = vec![first];
 
     let home = pa_types::platform::home_dir().map(|home| home.to_string_lossy().into_owned());
-    let prefix = |label: &str| format!(" {label:<8} ");
+    let prefix = |label: &str| format!(" {label:<8}   ");
     let project_prefix = prefix("project");
     let project_width = width.saturating_sub(str_width(&project_prefix));
     let cwd_prefix = prefix("cwd");

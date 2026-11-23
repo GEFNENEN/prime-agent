@@ -886,9 +886,9 @@ fn top_bar_shows_name_spend_project_cwd_and_branch_on_four_rows() {
     assert_eq!(
         &texts[1..],
         [
-            " project  /srv/session",
-            " cwd      /srv/terminal",
-            " branch   feature/x",
+            " project    /srv/session",
+            " cwd        /srv/terminal",
+            " branch     feature/x",
         ]
     );
 }
@@ -913,9 +913,9 @@ fn top_bar_labels_an_unnamed_session_and_says_when_there_is_no_git() {
     assert_eq!(
         &texts[1..],
         [
-            " project  /tmp/project",
-            " cwd      /tmp/project",
-            " branch   no git repository",
+            " project    /tmp/project",
+            " cwd        /tmp/project",
+            " branch     no git repository",
         ]
     );
     // A terminal still inside the session's directory stays dim: no red.
