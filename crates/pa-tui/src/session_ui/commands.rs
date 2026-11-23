@@ -38,7 +38,7 @@ impl SessionUi {
         match name.as_str() {
             "help" => {
                 self.note(
-                    "/help           this list\n/list           live sessions\n/switch <n|id>  switch to a session from /list\n/new            start a new session\n/exit           detach and exit",
+                    "/help           this list\n/find <text>    search the transcript\n/list           live sessions\n/switch <n|id>  switch to a session from /list\n/new            start a new session\n/exit           detach and exit",
                     view,
                 );
                 return Ok(());
@@ -607,6 +607,10 @@ impl SessionUi {
                 );
                 self.track_menu_opened("hotkeys", "command");
             }
+
+            // `/find <text>` scans the loaded transcript; `/find` alone clears
+            // the active search.
+            "find" => self.handle_find(&resolved.args, view),
 
             "session" => {
                 if !resolved.args.is_empty() {

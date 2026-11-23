@@ -194,6 +194,7 @@ impl SessionUi {
             prompt_in_flight: 0,
             compaction_settled: false,
             window: super::window::TranscriptWindow::default(),
+            find: None,
             page_notes,
             telemetry: options.telemetry.clone(),
             scroll_adoption_emitted: false,
@@ -589,6 +590,7 @@ impl SessionUi {
     ) {
         view.clear_chat();
         self.last_status_index = None;
+        self.find = None;
         self.pressed_click = None;
         self.pending_tools.clear();
         self.aborted_tools.clear();

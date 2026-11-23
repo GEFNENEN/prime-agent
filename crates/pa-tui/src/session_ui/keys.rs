@@ -421,6 +421,21 @@ impl SessionUi {
             self.dirty = true;
             return Ok(());
         }
+        if self.find.is_some() {
+            let (find_next, find_previous) = {
+                let kb = view.editor.keybindings();
+                (
+                    kb.matches(&id, "tui.viewport.findNext"),
+                    kb.matches(&id, "tui.viewport.findPrevious"),
+                )
+            };
+            if find_next || find_previous {
+                view.editor.clear_selection();
+                self.step_find(if find_next { 1 } else { -1 }, view);
+                self.track_scroll("find", view.is_following());
+                return Ok(());
+            }
+        }
         if to_top {
             view.scroll_to_top();
             self.window.request_head();
@@ -965,6 +980,8 @@ pub(crate) fn opening_echo_key_claimed(
         || kb.matches(id, "tui.viewport.follow")
         || kb.matches(id, "tui.viewport.previousUserMessage")
         || kb.matches(id, "tui.viewport.nextUserMessage")
+        || kb.matches(id, "tui.viewport.findNext")
+        || kb.matches(id, "tui.viewport.findPrevious")
         || kb.matches(id, "app.clipboard.pasteImage")
         || kb.matches(id, "app.input.clear")
         || kb.matches(id, "app.interrupt")

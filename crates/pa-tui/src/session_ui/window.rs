@@ -649,6 +649,7 @@ impl SessionUi {
         self.window
             .reset(leaf_id, page.first_id.filter(|_| page.more), page.seam);
         view.clear_chat();
+        self.find = None;
         let mut timestamps = page.timestamps;
         timestamps.resize(page.entries.len(), None);
         for (entry, timestamp) in page.entries.into_iter().zip(timestamps) {

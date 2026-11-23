@@ -164,6 +164,31 @@ pub enum ChatEntry {
 }
 
 impl ChatEntry {
+    /// Whether this row carries `needle_lower` (already lowercased) in the
+    /// text `/find` searches: the user's prompt and slash echo, status rows,
+    /// compaction summaries, and assistant text blocks.
+    #[must_use]
+    pub fn matches_find(&self, needle_lower: &str) -> bool {
+        let contains = |text: &str| text.to_lowercase().contains(needle_lower);
+        match self {
+            ChatEntry::User { text }
+            | ChatEntry::SlashCommand { text }
+            | ChatEntry::Status { text, .. } => contains(text),
+            ChatEntry::CompactionSummary {
+                summary,
+                custom_instructions,
+                ..
+            } => contains(summary) || custom_instructions.as_deref().is_some_and(contains),
+            ChatEntry::Assistant(message) => {
+                message.blocks.iter().any(|block| match block {
+                    MessageBlock::Text(text) => contains(text),
+                    MessageBlock::Thinking(_) => false,
+                }) || message.error.as_deref().is_some_and(contains)
+            }
+            _ => false,
+        }
+    }
+
     /// The envelope rows (agent messages, inbox notices, shell
     /// completions, tool cards): their leading blank follows the
     /// conversation spacing of the rows before them.

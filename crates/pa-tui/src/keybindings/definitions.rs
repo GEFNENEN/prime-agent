@@ -267,6 +267,14 @@ pub const TUI_KEYBINDINGS: &[(&str, KeybindingDefinition)] = &[
         ),
     ),
     (
+        "tui.viewport.findNext",
+        def!(&["alt+n"], "Jump to the next /find match (fullscreen)"),
+    ),
+    (
+        "tui.viewport.findPrevious",
+        def!(&["alt+p"], "Jump to the previous /find match (fullscreen)"),
+    ),
+    (
         "tui.viewport.top",
         def!(&["shift+alt+up"], "Scroll transcript to top (fullscreen)"),
     ),

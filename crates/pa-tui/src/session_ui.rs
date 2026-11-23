@@ -8,6 +8,7 @@ mod auth;
 mod bash;
 mod commands;
 mod factory;
+mod find;
 mod heartbeats;
 mod keys;
 mod library;
@@ -406,6 +407,8 @@ pub(crate) struct SessionUi {
     /// A compaction settled: the tray's context usage refreshes.
     pub(crate) compaction_settled: bool,
     pub(crate) window: window::TranscriptWindow,
+    /// The active `/find` search: its entry matches and current position.
+    find: Option<find::FindState>,
     page_notes: mpsc::UnboundedSender<window::TranscriptPageNote>,
     /// Adoption telemetry (counted into `tui exit`); `None` drops events.
     pub(crate) telemetry: Option<std::sync::Arc<dyn crate::interactive::InteractionTelemetry>>,
