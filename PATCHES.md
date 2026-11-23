@@ -75,7 +75,7 @@
 | 43 | `633ce3aa6` | feat | Ctrl+O 循环新增 minimal 阅读级别：隐藏模型工具卡、后台 shell 完成行与 inbox 到达/提醒通知；对话、`!`/`!!` bash 运行、状态通知、agent 消息、注入 prompt、压缩行照常显示，thinking 仍随 overview 隐藏；级别持久化为 `chatDetail: "minimal"`（收尾 `fbcd5ec5c`、`d344e59cd`） |
 | 44 | `bf5866f70` | feat | 终端窗口标题：命名会话为 `会话名 · working/done/error/idle`，未命名时为 `prime-agent · 状态`；仅变化时写 OSC 0；名称清洗控制字符与空白，并按显示宽度截到 32 列（收尾 `7ada67ec3`） |
 | 45 | `625dfc207` | feat | tray 的上下文占用按阈值着色：<75% dim、≥75% warning、≥90% error，自动压缩临近时可见 |
-| 46 | `8f180759b` | feat | 聊天顶栏在 `(session dir, cwd)` 后显示 `⑂branch`：纯读 `.git/HEAD`（支持 worktree/submodule 的 `gitdir:`），20 列截断，宽度不够整段省略；attach、改名、回合结束刷新，不做 dirty，不启动 `git` |
+| 46 | `8f180759b` | feat | 聊天顶栏四行：会话名 + 花费右对齐 / `project` 项目目录 / `cwd` 终端工作目录（偏离项目目录时标红）/ `branch` 分支；纯读 `.git/HEAD`（支持 worktree/submodule 的 `gitdir:`），无仓库显示 `no git repository`；路径按列宽中截、分支按列宽截断；attach、改名、回合结束刷新，不做 dirty，不启动 `git`（重打 `6f5e8312d`，原单行 `⑂branch` 显示已由本补丁取代） |
 | 47 | `9d7be2e52` | feat | 输入框 Ctrl+R 反向历史搜索：头部显示 `(reverse-i-search)`query':`，Ctrl+R 循环更旧命中、Backspace 改查询、可打印字符扩展查询、Enter 接受但不提交、Esc/Ctrl+C 恢复草稿；无命中显示 `[no match]` 并保留草稿 |
 | 48 | `67edbdbdf` | feat | `Alt+PageUp` / `Alt+PageDown`（别名 `Alt+[` / `Alt+]`）在用户消息（含 slash 命令回显）间跳转：跟随时先停在最新用户消息，暂停后按当前位置前后走 |
 | 49 | `35cf8b9f4` | feat | `/find <text>` 在已加载转写里大小写不敏感搜索（用户、助手正文、slash 回显、状态行、压缩摘要），跳首个命中并用 toast 显示位置；`Alt+N` / `Alt+P` 循环、`/find` 清空；命中在命令执行时快照 |
