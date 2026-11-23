@@ -1,1 +1,1 @@
-- Ctrl+O now has a minimal level: the model's tool cards and the background shell completion rows hide, while the dialogue, `!`/`!!` bash runs, notices, agent messages, and compaction rows stay. The level persists as `chatDetail: "minimal"`.
+- Ctrl+O now has a minimal level: the model's tool cards, the background shell completion rows, and the inbox arrival/reminder notices hide, while the dialogue, `!`/`!!` bash runs, status notices, agent messages, and compaction rows stay. The level persists as `chatDetail: "minimal"`.

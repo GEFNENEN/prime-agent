@@ -14,10 +14,11 @@ use ratatui::style::Style;
 /// How much detail the conversation shows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Detail {
-    /// `minimal`: the model's tool cards and the background shell completion
-    /// rows hide, while the rest of the transcript (dialogue, `!`/`!!` bash
-    /// runs, notices, agent messages, injected prompts, compaction rows) shows;
-    /// thinking stays hidden like `overview`.
+    /// `minimal`: the model's tool cards, the background shell completion
+    /// rows, and the inbox arrival/reminder notices hide, while the rest of
+    /// the transcript (dialogue, `!`/`!!` bash runs, status notices, agent
+    /// messages, injected prompts, compaction rows) shows; thinking stays
+    /// hidden like `overview`.
     Minimal,
     /// `overview`: thinking hidden, tool output and edit diffs collapsed.
     Overview,
@@ -60,14 +61,17 @@ impl Detail {
         matches!(self, Detail::Minimal)
     }
 
-    /// The minimal level's row filter: tool cards and background shell
-    /// completion rows hide, every other entry family (dialogue, `!`/`!!` bash
-    /// runs, notices, messages, compaction rows) shows. The other levels show
-    /// every entry.
+    /// The minimal level's row filter: tool cards, background shell
+    /// completion rows, and inbox notices hide; every other entry family
+    /// (dialogue, `!`/`!!` bash runs, status notices, agent messages,
+    /// compaction rows) shows. The other levels show every entry.
     #[must_use]
     pub fn shows_entry(self, entry: &ChatEntry) -> bool {
         !self.hides_tool_activity()
-            || !matches!(entry, ChatEntry::Tool(_) | ChatEntry::ShellCompletion(_))
+            || !matches!(
+                entry,
+                ChatEntry::Tool(_) | ChatEntry::ShellCompletion(_) | ChatEntry::InboxNotice(_)
+            )
     }
 
     #[must_use]

@@ -1819,12 +1819,13 @@ fn settled_rows_survive_a_cache_roundtrip() {
     );
 }
 
-/// The minimal level hides the model's tool cards and the background shell
-/// completion rows; the `!`/`!!` bash run cards stay, and thinking stays hidden
-/// like overview. Every other row family renders, and the per-level caches
-/// never serve a row rendered for another level.
+/// The minimal level hides the model's tool cards, the background shell
+/// completion rows, and the inbox notices; the `!`/`!!` bash run cards and the
+/// agent-message rows stay, and thinking stays hidden like overview. Every
+/// other row family renders, and the per-level caches never serve a row
+/// rendered for another level.
 #[test]
-fn minimal_detail_hides_tool_cards_and_shell_completions() {
+fn minimal_detail_hides_tool_cards_shell_completions_and_inbox_notices() {
     let entries = vec![
         ChatEntry::Status {
             text: "status-notice".to_string(),
@@ -1861,6 +1862,11 @@ fn minimal_detail_hides_tool_cards_and_shell_completions() {
             counterpart: "lane".to_string(),
             message: "agent-body".to_string(),
         })),
+        ChatEntry::InboxNotice(Box::new(crate::custom_message::InboxNoticeRow {
+            class: "arrival".to_string(),
+            count: Some(1),
+            text: "inbox-body".to_string(),
+        })),
         ChatEntry::ShellCompletion(Box::new(crate::custom_message::ShellCompletionRow {
             pid: Some(7),
             exit_code: Some(0),
@@ -1889,6 +1895,8 @@ fn minimal_detail_hides_tool_cards_and_shell_completions() {
         "echo done",
         "shell-body",
         "Background shell command finished",
+        "Agent inbox",
+        "inbox-body",
     ];
     let shown = [
         "hello",
@@ -1938,7 +1946,9 @@ fn minimal_detail_hides_tool_cards_and_shell_completions() {
             && overview.contains("echo user-bash")
             && overview.contains("Background shell command finished")
             && overview.contains("Context compacted")
-            && overview.contains("Agent message"),
+            && overview.contains("Agent message")
+            && overview.contains("Agent inbox")
+            && overview.contains("inbox-body"),
         "the overview level restores the tool and shell rows: {overview}"
     );
     assert!(
