@@ -73,6 +73,10 @@
 | 41 | `db5032812` | feat | TUI transcript 按条显示本地时间戳，`/settings → Display` 可开关（`terminal.showTimestamps`，默认关） |
 | 42 | `1e48e0c0c` | feat | TUI 时间戳格式可调：日期（none / MM/DD / YY/MM/DD / YYYY/MM/DD）与毫秒位数（0–3），前缀宽度随格式 11–26 列；新增 `terminal.timestampDate`、`terminal.timestampMillis` |
 | 43 | `633ce3aa6` | feat | Ctrl+O 循环新增 minimal 阅读级别：只隐藏模型工具卡与后台 shell 完成行；对话、`!`/`!!` bash 运行、通知、agent 消息、注入 prompt、压缩行照常显示，thinking 仍随 overview 隐藏；级别持久化为 `chatDetail: "minimal"`（收尾 `fbcd5ec5c`） |
+| 44 | `bf5866f70` | feat | 终端窗口标题显示 `prime-agent · 会话名 · working/done/error/idle`，仅在变化时写 OSC 0；未命名会话仍带应用名与状态，会话名里的控制字符与空白串会被清洗 |
+| 45 | `625dfc207` | feat | tray 的上下文占用按阈值着色：<75% dim、≥75% warning、≥90% error，自动压缩临近时可见 |
+| 46 | `8f180759b` | feat | 聊天顶栏在 `(session dir, cwd)` 后显示 `⑂branch`：纯读 `.git/HEAD`（支持 worktree/submodule 的 `gitdir:`），20 列截断，宽度不够整段省略；attach、改名、回合结束刷新，不做 dirty，不启动 `git` |
+| 47 | `9d7be2e52` | feat | 输入框 Ctrl+R 反向历史搜索：头部显示 `(reverse-i-search)`query':`，Ctrl+R 循环更旧命中、Backspace 改查询、可打印字符扩展查询、Enter 接受但不提交、Esc/Ctrl+C 恢复草稿；无命中显示 `[no match]` 并保留草稿 |
 
 表格按**行为补丁**计数，所以行数与提交数**不相等**：同一个补丁的后续收尾提交
 （对已入表补丁的修正、重构、补测试）并入该行的摘要，不另开一行——表末那条就是
@@ -118,6 +122,7 @@ v0.10.5 同步的冲突收尾、Hindsight 的 TLS provider、`assert_is_empty` �
 | `custom.42` | TUI 时间戳格式可调（日期 4 档、毫秒 0–3 位），前缀宽度随格式变化。二进制内容变了，所以升号 |
 | `custom.43` | 同步上游到 `v0.10.5`（`783acb5d7`，40 个提交），并把 Ctrl+O 的 minimal 阅读级别并入。上游依赖大升级（`base64` 0.23、`fancy-regex` 0.20、`rsa` 0.10、`sha2` 0.11、`getrandom` 0.4、`reqwest` 0.13），二进制内容变了，所以升号 |
 | `custom.44` | 同步上游到 `upstream/main` `bb21eae7b`（1 个提交，url 2.5.9 / RUSTSEC-2026-0592），131 个本地提交重放无冲突。二进制内容随依赖变化，所以升号 |
+| `custom.45` | TUI 体验四连：终端标题、上下文占用按阈值着色、顶栏 git 分支、Ctrl+R 反向历史搜索（补丁 44–47）。二进制内容变了，所以升号 |
 
 stamp 提交写于哪个基线，rebase 后正文里的版本号可能与实际写入的不一致；那种提交
 正文不追改（改写历史只为一个字符串不值当）。唯一例外是**标题行**：`v0.10.3` 那次
