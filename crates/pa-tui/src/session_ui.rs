@@ -581,7 +581,14 @@ impl SessionUi {
             session_dir: self.cwd.to_string_lossy().into_owned(),
             cwd: self.terminal_cwd.to_string_lossy().into_owned(),
         });
+        view.chrome.git_branch = crate::git_branch::read_branch(&self.cwd);
         self.dirty = true;
+    }
+
+    /// Re-read the session directory's branch: a `git checkout` during a turn
+    /// would otherwise leave the top bar on the branch the turn started from.
+    pub(crate) fn refresh_git_branch(&self, view: &mut AgentView) {
+        view.chrome.git_branch = crate::git_branch::read_branch(&self.cwd);
     }
 
     pub(crate) async fn current_model_provider(&mut self) -> Option<String> {

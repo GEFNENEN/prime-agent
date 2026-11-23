@@ -61,6 +61,9 @@ pub struct ChromeState {
     pub chat_name: String,
     /// The label's `(session dir, cwd)` suffix: `None` renders the bare label.
     pub chat_path: Option<ChatPath>,
+    /// The session directory's git branch (`⑂branch` after the path group):
+    /// `None` outside a repository or when the bar has no room.
+    pub git_branch: Option<String>,
     /// Session spend (USD) beside the chat name: the family rollup (the
     /// session's spend plus every subagent descendant's).
     pub cost_usd: Option<f64>,
@@ -398,10 +401,25 @@ pub fn render_top_bar(state: &ChromeState, theme: &Theme, width: usize) -> Line 
             );
             (session_dir, cwd, path.diverged())
         });
-    let label_width = str_width(&name)
+    let base_label_width = str_width(&name)
         + path
             .as_ref()
             .map_or(0, |(dir, cwd, _)| 5 + str_width(dir) + str_width(cwd));
+    // The branch rides after the path group; it drops whole when the bar
+    // cannot carry it (the paths and the spend keep their room).
+    let branch = state
+        .git_branch
+        .as_deref()
+        .filter(|branch| !branch.is_empty())
+        .filter(|_| path.is_some())
+        .map(|branch| truncate_to_width(branch, 20, "\u{2026}"));
+    let branch_width = branch.as_ref().map_or(0, |branch| 2 + str_width(branch));
+    let branch = if base_label_width + branch_width + cost_width <= width {
+        branch
+    } else {
+        None
+    };
+    let label_width = base_label_width + branch.as_ref().map_or(0, |_| branch_width);
     let mut line: Line = Vec::new();
     line.push(Span::styled(
         " ".repeat((width.saturating_sub(label_width)) / 2),
@@ -414,6 +432,10 @@ pub fn render_top_bar(state: &ChromeState, theme: &Theme, width: usize) -> Line 
         line.push(Span::styled(", ".to_string(), dim));
         line.push(Span::styled(cwd, if diverged { drifted } else { dim }));
         line.push(Span::styled(")".to_string(), dim));
+    }
+    if let Some(branch) = branch {
+        line.push(Span::styled(" \u{2442}".to_string(), dim));
+        line.push(Span::styled(branch, dim));
     }
     if let Some(cost) = cost {
         line.push(Span::styled("  ".to_string(), Style::default()));

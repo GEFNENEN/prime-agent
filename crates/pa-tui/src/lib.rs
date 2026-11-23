@@ -64,6 +64,7 @@ pub mod export_share;
 mod external_editor;
 pub mod factory_view;
 pub mod fuzzy;
+pub(crate) mod git_branch;
 pub mod goal_surface;
 pub mod heartbeats_picker;
 pub mod hotkeys;

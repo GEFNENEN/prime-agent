@@ -936,6 +936,43 @@ fn top_bar_drops_the_paths_when_the_bar_is_too_narrow() {
 }
 
 #[test]
+fn top_bar_shows_the_git_branch_after_the_paths() {
+    let state = ChromeState {
+        chat_name: "the session".to_string(),
+        chat_path: Some(ChatPath {
+            session_dir: "/tmp/project".to_string(),
+            cwd: "/tmp/project".to_string(),
+        }),
+        git_branch: Some("feature/x".to_string()),
+        ..Default::default()
+    };
+    let line = render_top_bar(&state, &theme(), 120);
+    let text = line.iter().map(|s| s.content.as_str()).collect::<String>();
+    assert_eq!(
+        text.trim(),
+        "the session (/tmp/project, /tmp/project) \u{2442}feature/x"
+    );
+}
+
+#[test]
+fn top_bar_drops_the_git_branch_when_it_would_overflow() {
+    let state = ChromeState {
+        chat_name: "the session".to_string(),
+        chat_path: Some(ChatPath {
+            session_dir: "/tmp/project".to_string(),
+            cwd: "/tmp/project".to_string(),
+        }),
+        git_branch: Some("feature/x".to_string()),
+        ..Default::default()
+    };
+    let line = render_top_bar(&state, &theme(), 45);
+    let text = line.iter().map(|s| s.content.as_str()).collect::<String>();
+    assert!(text.contains("/tmp/project"), "{text}");
+    assert!(!text.contains("feature/x"), "{text}");
+    assert!(!text.contains('\u{2442}'), "{text}");
+}
+
+#[test]
 fn a_trailing_separator_does_not_diverge_the_paths() {
     let path = ChatPath {
         session_dir: "/tmp/project/".to_string(),

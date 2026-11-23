@@ -533,6 +533,7 @@ impl SessionUi {
                         kind: StatusKind::Warning,
                     });
                 }
+                self.refresh_git_branch(view);
             }
             TurnUpdate::AutoRetryStart {
                 attempt,
