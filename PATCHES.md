@@ -72,7 +72,7 @@
 | 40 | `29a41c78f` | feat | 恢复 Hindsight 记忆（隐藏 hook，见 `docs/hindsight-hook.md`） |
 | 41 | `db5032812` | feat | TUI transcript 按条显示本地时间戳，`/settings → Display` 可开关（`terminal.showTimestamps`，默认关） |
 | 42 | `1e48e0c0c` | feat | TUI 时间戳格式可调：日期（none / MM/DD / YY/MM/DD / YYYY/MM/DD）与毫秒位数（0–3），前缀宽度随格式 11–26 列；新增 `terminal.timestampDate`、`terminal.timestampMillis` |
-| 43 | `633ce3aa6` | feat | Ctrl+O 循环新增 minimal 阅读级别：只隐藏模型工具卡与后台 shell 完成行；对话、`!`/`!!` bash 运行、通知、agent 消息、注入 prompt、压缩行照常显示，thinking 仍随 overview 隐藏；级别持久化为 `chatDetail: "minimal"`（收尾 `fbcd5ec5c`） |
+| 43 | `633ce3aa6` | feat | Ctrl+O 循环新增 minimal 阅读级别：隐藏模型工具卡、后台 shell 完成行与 inbox 到达/提醒通知；对话、`!`/`!!` bash 运行、状态通知、agent 消息、注入 prompt、压缩行照常显示，thinking 仍随 overview 隐藏；级别持久化为 `chatDetail: "minimal"`（收尾 `fbcd5ec5c`、`d344e59cd`） |
 | 44 | `bf5866f70` | feat | 终端窗口标题：命名会话为 `会话名 · working/done/error/idle`，未命名时为 `prime-agent · 状态`；仅变化时写 OSC 0；名称清洗控制字符与空白，并按显示宽度截到 32 列（收尾 `7ada67ec3`） |
 | 45 | `625dfc207` | feat | tray 的上下文占用按阈值着色：<75% dim、≥75% warning、≥90% error，自动压缩临近时可见 |
 | 46 | `8f180759b` | feat | 聊天顶栏在 `(session dir, cwd)` 后显示 `⑂branch`：纯读 `.git/HEAD`（支持 worktree/submodule 的 `gitdir:`），20 列截断，宽度不够整段省略；attach、改名、回合结束刷新，不做 dirty，不启动 `git` |
