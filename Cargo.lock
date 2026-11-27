@@ -1651,7 +1651,7 @@ dependencies = [
 
 [[package]]
 name = "pa-factory"
-version = "0.10.5"
+version = "0.10.5+custom.51"
 dependencies = [
  "serde",
  "serde_json",

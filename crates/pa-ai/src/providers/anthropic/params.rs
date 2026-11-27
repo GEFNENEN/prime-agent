@@ -215,9 +215,11 @@ mod tests {
             json!({ "type": "adaptive", "display": "summarized" }),
             json!({ "effort": "medium" }),
         );
+        // The fork's thinking-tier patch also carries the requested tier on a
+        // budget-based route, so Haiku 4.5 reports the effort too.
         let budget = (
             json!({ "type": "enabled", "budget_tokens": 2048, "display": "summarized" }),
-            serde_json::Value::Null,
+            json!({ "effort": "medium" }),
         );
         for (model_id, expected) in [
             ("claude-haiku-5-5", &adaptive),

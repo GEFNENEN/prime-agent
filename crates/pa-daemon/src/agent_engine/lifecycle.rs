@@ -916,6 +916,7 @@ impl AgentSessionEngine {
                             target: parent.id.clone(),
                             message: text,
                             receiver_role: Some(AgentFamilyRelationship::Parent),
+                            delivery_mode: None,
                         })
                         .await?;
                     Ok(())

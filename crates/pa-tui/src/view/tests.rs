@@ -133,12 +133,13 @@ fn the_factory_page_fills_the_parent_area() {
     let frame = v.render_frame(80, 24);
     assert_eq!(frame.len(), 24);
     let rows: Vec<String> = frame.iter().map(text_of).collect();
-    // The factory page claims the main area right below the top bar: row 1 is the page header,
-    // not transcript content or an empty transcript band.
+    // The factory page claims the main area right below the fork's pinned four-row top bar:
+    // `HEADER_ROWS` is the page header, not transcript content or an empty transcript band.
+    let first_page_row = crate::selection::HEADER_ROWS;
     assert!(
-        rows[1].contains("machines"),
-        "row 1 starts the machines page, was: {:?}",
-        rows[1]
+        rows[first_page_row].contains("machines"),
+        "row {first_page_row} starts the machines page, was: {:?}",
+        rows[first_page_row]
     );
     // The key hint is pinned at the bottom of the frame (row 23).
     assert!(

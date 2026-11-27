@@ -54,12 +54,12 @@ impl AgentView {
             // The machines and run pages claim the main area under the top bar (the agents-view
             // precedent: full-height layout, no empty transcript band above the page).
             Some(Overlay::Library(page)) => {
-                page.set_viewport_rows(height.saturating_sub(1));
+                page.set_viewport_rows(height.saturating_sub(crate::selection::HEADER_ROWS));
                 let rows = page.render(&self.theme, width, kb);
                 return self.full_height_page(rows, width, height);
             }
             Some(Overlay::Factory { run, .. }) => {
-                run.set_viewport_rows(height.saturating_sub(1));
+                run.set_viewport_rows(height.saturating_sub(crate::selection::HEADER_ROWS));
                 let rows = run.render(&self.theme, width, kb);
                 return self.full_height_page(rows, width, height);
             }
@@ -286,21 +286,23 @@ impl AgentView {
 
     /// A full-height page's frame: the top bar, then the page's rows, padded to `height`.
     fn full_height_page(&mut self, rows: Vec<Line>, width: usize, height: usize) -> Vec<Line> {
+        let top: Vec<Line> = render_top_bar(&self.chrome, &self.theme, width)
+            .into_iter()
+            .map(|line| pad_row(line, width))
+            .collect();
+        let top_rows = top.len();
         let mut frame = Vec::with_capacity(height);
-        frame.push(pad_row(
-            render_top_bar(&self.chrome, &self.theme, width),
-            width,
-        ));
+        frame.extend(top);
         frame.extend(
             rows.into_iter()
-                .take(height.saturating_sub(1))
+                .take(height.saturating_sub(top_rows))
                 .map(|line| pad_row(line, width)),
         );
         while frame.len() < height {
             frame.push(vec![Span::raw(" ".repeat(width))]);
         }
         self.frame_rows = frame.len();
-        self.apply_frame_selection(&mut frame, 1, width);
+        self.apply_frame_selection(&mut frame, top_rows, width);
         frame
     }
 

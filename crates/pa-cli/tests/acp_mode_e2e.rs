@@ -270,14 +270,28 @@ fn worker_descriptor(home: &std::path::Path) -> Value {
         .expect("the worker descriptor")
 }
 
+/// Read the child's stderr without waiting for an EOF that may never come: the
+/// supervisor outlives the child that spawned it and can keep the pipe's write
+/// end open after the child exits, so a direct `read_to_string` hangs.
+fn read_child_stderr(stderr: std::process::ChildStderr) -> String {
+    let (tx, rx) = channel();
+    std::thread::spawn(move || {
+        use std::io::Read;
+        let mut text = String::new();
+        let mut stderr = stderr;
+        let _ = stderr.read_to_string(&mut text);
+        let _ = tx.send(text);
+    });
+    rx.recv_timeout(Duration::from_millis(500))
+        .unwrap_or_default()
+}
+
 impl Drop for AcpChild {
     fn drop(&mut self) {
         let _ = self.child.kill();
         let _ = self.child.wait();
-        if let Some(mut stderr) = self.spawn_stderr.take() {
-            use std::io::Read;
-            let mut text = String::new();
-            let _ = stderr.read_to_string(&mut text);
+        if let Some(stderr) = self.spawn_stderr.take() {
+            let text = read_child_stderr(stderr);
             if !text.is_empty() {
                 eprintln!("ACP child stderr: {text}");
             }
@@ -484,7 +498,7 @@ fn acp_cwd_mismatch_is_reported_not_adopted() {
     // (the value is tempdir-random).
     assert!(meta["actual"]
         .as_str()
-        .is_some_and(|actual| actual.starts_with(std::path::MAIN_SEPARATOR)));
+        .is_some_and(|actual| std::path::Path::new(actual).is_absolute()));
 }
 
 #[test]
@@ -852,6 +866,10 @@ fn acp_daemon_attached_eof_teardown_clears_the_connection_mcp_servers() {
 }
 
 #[test]
+#[cfg_attr(
+    windows,
+    ignore = "a regular file is not a Windows named-pipe endpoint, so the unreachable path has no Windows analogue"
+)]
 fn acp_mode_daemon_unreachable_exits_1_without_fallback() {
     let home = tempfile::TempDir::new().unwrap();
     let socket = home.path().join("daemon.sock");

@@ -61,6 +61,7 @@ fn stalled_child(
             child_script: None,
             semantic_spawn: None,
             factory_child: false,
+            factory_contract: None,
         },
     )
     .unwrap();

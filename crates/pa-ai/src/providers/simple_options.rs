@@ -320,7 +320,6 @@ mod tests {
         }
     }
 
-
     #[test]
     fn every_tier_above_high_reaches_the_wire_with_its_own_budget() {
         // The regression this guards: `adjust_max_tokens_for_thinking` used to

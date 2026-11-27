@@ -150,6 +150,10 @@ fn parse_events(stdout: &str) -> Vec<Value> {
 /// shape: no run boundary between continuation turns), and the stop surfaces
 /// no row.
 #[test]
+#[cfg_attr(
+    windows,
+    ignore = "the fixture verifier is a #!/usr/bin/env bash script that Windows cannot execute directly"
+)]
 fn verifier_gate_pass_stops_the_run_with_structured_events_in_run() {
     let home = isolated_home();
     let verifier = pass_on_second_consult_verifier(home.path());
@@ -271,6 +275,10 @@ fn verifier_gate_pass_stops_the_run_with_structured_events_in_run() {
 /// A verifier that never passes exhausts its retry window: the process exits
 /// one with the TS print-mode stderr line; the stop writes no row.
 #[test]
+#[cfg_attr(
+    windows,
+    ignore = "the fixture verifier is a #!/usr/bin/env bash script that Windows cannot execute directly"
+)]
 fn verifier_gate_failure_exhausts_retries_and_exits_one() {
     let home = isolated_home();
     let verifier = always_failing_verifier(home.path());
@@ -328,6 +336,10 @@ fn verifier_gate_failure_exhausts_retries_and_exits_one() {
 /// Text mode prints the final answer on a passing verifier run, and stays
 /// quiet about the autonomous machinery (the stop writes nothing).
 #[test]
+#[cfg_attr(
+    windows,
+    ignore = "the fixture verifier is a #!/usr/bin/env bash script that Windows cannot execute directly"
+)]
 fn text_mode_verifier_pass_prints_the_final_answer() {
     let home = isolated_home();
     let verifier = pass_on_second_consult_verifier(home.path());
